@@ -1,8 +1,7 @@
-import { TimelineTrack } from "@/src/features/editor/types";
 import { TimelineTrackLaneLayout } from "@/src/features/editor/lib/build-track-lane-layouts";
+import { RULER_HEIGHT } from "@/src/features/editor/lib/timeline-math";
 import TimelineTrackHeaderRow from "./timeline-track-header-row";
-
-const RULER_HEIGHT = 28;
+import { TimelineTrack } from "@/src/features/editor/types";
 
 type TimelineTrackHeadersProps = {
     tracks: TimelineTrack[];
@@ -14,7 +13,7 @@ const TimelineTrackHeaders: React.FC<TimelineTrackHeadersProps> = ({
     tracks,
     lanes,
     totalHeight,
-}: TimelineTrackHeadersProps) => {
+}) => {
     const sortedTracks = [...tracks].sort((a, b) => a.index - b.index);
     const laneMap = new Map(lanes.map((lane) => [lane.trackId, lane]));
 
@@ -28,7 +27,6 @@ const TimelineTrackHeaders: React.FC<TimelineTrackHeadersProps> = ({
             }}>
             {sortedTracks.map((track, index) => {
                 const lane = laneMap.get(track.id);
-
                 if (!lane) return null;
 
                 return (

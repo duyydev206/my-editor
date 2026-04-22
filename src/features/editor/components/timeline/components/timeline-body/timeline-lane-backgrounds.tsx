@@ -1,6 +1,5 @@
 import { TimelineTrackLaneLayout } from "@/src/features/editor/lib/build-track-lane-layouts";
-
-const TIMELINE_GUTTER_X = 15;
+import { TIMELINE_GUTTER_X } from "@/src/features/editor/lib/timeline-math";
 
 type TimelineLaneBackgroundsProps = {
     width: number;
@@ -10,7 +9,7 @@ type TimelineLaneBackgroundsProps = {
 const TimelineLaneBackgrounds: React.FC<TimelineLaneBackgroundsProps> = ({
     width,
     lanes,
-}: TimelineLaneBackgroundsProps) => {
+}) => {
     return (
         <div
             className='absolute'

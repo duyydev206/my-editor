@@ -3,13 +3,11 @@ import TimelineRuler from "./components/timeline-ruler";
 import TimelineToolbar from "./components/timeline-toolbar";
 import TimelineBody from "./components/timeline-body";
 import TimelineItem from "./components/timeline-item";
-import { TimelineTrack } from "../../types";
 import { buildTrackLaneLayouts } from "../../lib/build-track-lane-layouts";
-import {
-    buildItemLayouts,
-    TimelineItemData,
-} from "../../lib/build-item-layouts";
+import { buildClipLayouts } from "../../lib/build-clip-layouts";
 import TimelineTrackHeaders from "./components/timeline-track-headers";
+import { getTimelineContentWidth } from "../../lib/timeline-math";
+import { TimelineClip, TimelineTrack } from "../../types";
 
 const tracks: TimelineTrack[] = [
     {
@@ -58,40 +56,93 @@ const tracks: TimelineTrack[] = [
     },
 ];
 
-const items: TimelineItemData[] = [
+const clips: TimelineClip[] = [
     {
-        id: "item-1",
+        id: "clip-1",
         trackId: "track-1",
+        type: "text",
+        from: 0,
+        durationInFrames: 90,
+        sourceStartFrame: 0,
         label: "Edit this video",
-        left: 0,
-        width: 160,
+        color: "rgb(122, 93, 232)",
+        isLocked: false,
+        isHidden: false,
+        text: "Edit this video",
+        style: {
+            fontFamily: "Inter",
+            fontSize: 14,
+            color: "#ffffff",
+        },
     },
     {
-        id: "item-2",
+        id: "clip-2",
         trackId: "track-2",
+        type: "text",
+        from: 120,
+        durationInFrames: 60,
+        sourceStartFrame: 0,
         label: "Demo",
-        left: 220,
-        width: 120,
+        color: "rgb(122, 93, 232)",
+        isLocked: false,
+        isHidden: false,
+        text: "Demo",
+        style: {
+            fontFamily: "Inter",
+            fontSize: 14,
+            color: "#ffffff",
+        },
     },
     {
-        id: "item-3",
+        id: "clip-3",
         trackId: "track-3",
+        type: "audio",
+        from: 60,
+        durationInFrames: 180,
+        sourceStartFrame: 0,
         label: "Voice over",
-        left: 120,
-        width: 260,
+        color: "rgb(58, 122, 68)",
+        isLocked: false,
+        isHidden: false,
+        src: "/audio/voice.mp3",
+        sourceDurationInFrames: 180,
+        volume: 1,
     },
     {
-        id: "item-4",
+        id: "clip-4",
         trackId: "track-4",
+        type: "video",
+        from: 180,
+        durationInFrames: 180,
+        sourceStartFrame: 0,
         label: "Main footage",
-        left: 420,
-        width: 280,
+        color: "rgb(61, 94, 201)",
+        isLocked: false,
+        isHidden: false,
+        src: "/video/main.mp4",
+        sourceDurationInFrames: 180,
+        volume: 1,
     },
 ];
 
+const fps = 30;
+const durationInFrames = 600;
+const pixelsPerFrame = 2.5;
+const currentFrame = 90;
+
 const Timeline: React.FC = () => {
     const laneResult = buildTrackLaneLayouts(tracks);
-    const itemLayouts = buildItemLayouts(items, tracks, laneResult.layouts);
+    const clipLayouts = buildClipLayouts(
+        clips,
+        tracks,
+        laneResult.layouts,
+        pixelsPerFrame,
+    );
+
+    const timelineWidth = getTimelineContentWidth(
+        durationInFrames,
+        pixelsPerFrame,
+    );
 
     return (
         <div className='w-full max-h-full h-full flex flex-col'>
@@ -129,36 +180,36 @@ const Timeline: React.FC = () => {
                             <div
                                 className='absolute top-0 left-0 h-7 w z-20 bg-gray-300'
                                 style={{ width: "111px" }}></div>
-                            <div className='relative h-full'>
+
+                            <div
+                                className='relative h-full'
+                                style={{ width: timelineWidth }}>
                                 {/* ===== Tick header =====*/}
-                                <TimelineRuler />
+                                <TimelineRuler
+                                    fps={fps}
+                                    durationInFrames={durationInFrames}
+                                    pixelsPerFrame={pixelsPerFrame}
+                                />
+
                                 {/* ===== Track container ===== */}
                                 <TimelineBody
-                                    width={1949}
+                                    width={timelineWidth}
                                     lanes={laneResult.layouts}
                                     totalHeight={laneResult.totalHeight}>
-                                    {itemLayouts.map((item) => (
+                                    {clipLayouts.map((clipLayout) => (
                                         <TimelineItem
-                                            key={item.id}
-                                            kind={item.kind}
-                                            left={item.left}
-                                            top={item.top}
-                                            width={item.width}
-                                            height={item.height}
-                                            label={item.label}
-                                            background={item.background}
-                                            src={item.src}
-                                            resizeHandleWidth={
-                                                item.resizeHandleWidth
-                                            }
-                                            isLocked={item.isLocked}
-                                            isHidden={item.isHidden}
-                                            isMuted={item.isMuted}
+                                            key={clipLayout.clip.id}
+                                            clipLayout={clipLayout}
                                         />
                                     ))}
                                 </TimelineBody>
+
                                 {/* ===== Playhead ===== */}
-                                <Playhead />
+                                <Playhead
+                                    currentFrame={currentFrame}
+                                    durationInFrames={durationInFrames}
+                                    pixelsPerFrame={pixelsPerFrame}
+                                />
                             </div>
                         </div>
                     </div>

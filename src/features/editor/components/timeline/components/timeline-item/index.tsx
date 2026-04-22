@@ -1,42 +1,34 @@
-import { TrackMediaKind } from "@/src/features/editor/types";
+import { TimelineClipLayout } from "@/src/features/editor/lib/build-clip-layouts";
 import TimelineItemContent from "./timeline-item-content";
 import TimelineItemResizeHandle from "./timeline-item-resize-handle";
 import TimelineItemShell from "./timeline-item-shell";
 
 type TimelineItemProps = {
-    kind: TrackMediaKind;
-    left: number;
-    top: number;
-    width: number;
-    height: number;
-    label?: string;
-    background?: string;
-    src?: string;
-    resizeHandleWidth?: number;
-    isLocked?: boolean;
-    isHidden?: boolean;
-    isMuted?: boolean;
+    clipLayout: TimelineClipLayout;
+    isSelected?: boolean;
 };
 
 const TimelineItem: React.FC<TimelineItemProps> = ({
-    kind,
-    left,
-    top,
-    width,
-    height,
-    label,
-    background = "#666",
-    src,
-    resizeHandleWidth = 6,
-    isLocked = false,
-    isHidden = false,
-    isMuted = false,
+    clipLayout,
+    isSelected = false,
 }: TimelineItemProps) => {
+    const {
+        clip,
+        left,
+        top,
+        width,
+        height,
+        resizeHandleWidth,
+        isTrackLocked,
+        isTrackHidden,
+        isTrackMuted,
+    } = clipLayout;
+
     return (
         <div
             className='relative'
-            data-hidden={isHidden}
-            style={{ opacity: isHidden ? 0.45 : 1 }}>
+            data-hidden={isTrackHidden || clip.isHidden}
+            style={{ opacity: isTrackHidden || clip.isHidden ? 0.45 : 1 }}>
             <div data-state='closed' style={{ display: "contents" }}>
                 <div
                     style={{
@@ -46,17 +38,16 @@ const TimelineItem: React.FC<TimelineItemProps> = ({
                         height,
                         position: "absolute",
                     }}>
-                    <TimelineItemShell isLocked={isLocked}>
+                    <TimelineItemShell
+                        isLocked={isTrackLocked || clip.isLocked}
+                        isSelected={isSelected}>
                         <TimelineItemContent
-                            kind={kind}
-                            label={label}
-                            background={background}
-                            src={src}
-                            isMuted={isMuted}
+                            clip={clip}
+                            isTrackMuted={isTrackMuted}
                         />
                     </TimelineItemShell>
 
-                    {!isLocked && (
+                    {!isTrackLocked && !clip.isLocked && (
                         <>
                             <TimelineItemResizeHandle
                                 side='start'

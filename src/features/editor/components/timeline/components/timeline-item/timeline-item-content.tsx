@@ -1,37 +1,17 @@
-import { HiSpeakerWave } from "react-icons/hi2";
+import { HiSpeakerWave, HiSpeakerXMark } from "react-icons/hi2";
 import { BsType } from "react-icons/bs";
 import { LuRectangleHorizontal } from "react-icons/lu";
 import { FiImage } from "react-icons/fi";
 import { RiMovie2Line } from "react-icons/ri";
-import { TrackMediaKind } from "@/src/features/editor/types";
+import { TimelineClip } from "@/src/features/editor/types";
 
 type TimelineItemContentProps = {
-    kind: TrackMediaKind;
-    label?: string;
-    background?: string;
-    src?: string;
-    isMuted?: boolean;
+    clip: TimelineClip;
+    isTrackMuted?: boolean;
 };
 
-const getDefaultBackground = (kind: TrackMediaKind) => {
-    switch (kind) {
-        case "text":
-            return "rgb(122, 93, 232)";
-        case "shape":
-            return "rgb(176, 75, 207)";
-        case "audio":
-            return "rgb(58, 122, 68)";
-        case "video":
-            return "rgb(61, 94, 201)";
-        case "image":
-            return "rgb(255, 127, 80)";
-        default:
-            return "rgb(122, 93, 232)";
-    }
-};
-
-const getKindIcon = (kind: TrackMediaKind) => {
-    switch (kind) {
+const getKindIcon = (type: TimelineClip["type"]) => {
+    switch (type) {
         case "text":
             return <BsType className='shrink-0 text-xs' />;
         case "shape":
@@ -48,27 +28,26 @@ const getKindIcon = (kind: TrackMediaKind) => {
 };
 
 const TimelineItemContent: React.FC<TimelineItemContentProps> = ({
-    kind,
-    label,
-    background,
-    isMuted = false,
+    clip,
+    isTrackMuted = false,
 }: TimelineItemContentProps) => {
-    const resolvedBackground = background ?? getDefaultBackground(kind);
+    const background = clip.color;
 
-    if (kind === "audio") {
+    if (clip.type === "audio") {
+        const muted = isTrackMuted || clip.isMuted;
+
         return (
             <div className='absolute h-full w-full'>
                 <div
                     className='relative h-full w-full overflow-hidden'
-                    style={{ background: resolvedBackground }}>
+                    style={{ background }}>
                     <div className='flex h-full w-full flex-nowrap gap-1 p-1 text-xs text-white'>
-                        {getKindIcon(kind)}
-                        <span className='truncate'>{label}</span>
-                        {isMuted ? (
-                            <span className='ml-auto text-[10px] opacity-80'>
-                                Muted
-                            </span>
-                        ) : null}
+                        {muted ? (
+                            <HiSpeakerXMark className='shrink-0 text-xs' />
+                        ) : (
+                            getKindIcon(clip.type)
+                        )}
+                        <span className='truncate'>{clip.label}</span>
                     </div>
 
                     <div className='absolute bottom-0 left-0 right-0 h-5 bg-black/10'>
@@ -81,24 +60,24 @@ const TimelineItemContent: React.FC<TimelineItemContentProps> = ({
         );
     }
 
-    if (kind === "video" || kind === "image") {
+    if (clip.type === "video" || clip.type === "image") {
         return (
             <div className='absolute h-full w-full'>
                 <div
                     className='relative h-full w-full overflow-hidden'
-                    style={{ background: resolvedBackground }}>
+                    style={{ background }}>
                     <div className='flex h-full w-full flex-nowrap gap-1 p-1 text-xs text-white'>
-                        {getKindIcon(kind)}
-                        <span className='truncate'>{label}</span>
+                        {getKindIcon(clip.type)}
+                        <span className='truncate'>{clip.label}</span>
                     </div>
 
                     <div className='absolute inset-x-0 bottom-0 h-5 bg-black/10'>
                         <div className='absolute inset-0 opacity-30'>
-                            <div className='flex h-full gap-0.5 px-1'>
+                            <div className='flex h-full gap-[2px] px-1'>
                                 {Array.from({ length: 12 }).map((_, index) => (
                                     <div
                                         key={index}
-                                        className='h-full flex-1 rounded-b-xs bg-white/20'
+                                        className='h-full flex-1 rounded-[2px] bg-white/20'
                                     />
                                 ))}
                             </div>
@@ -109,13 +88,26 @@ const TimelineItemContent: React.FC<TimelineItemContentProps> = ({
         );
     }
 
+    if (clip.type === "text") {
+        return (
+            <div className='absolute h-full w-full'>
+                <div
+                    className='flex h-full w-full flex-nowrap gap-1 p-1 text-xs text-white'
+                    style={{ background }}>
+                    {getKindIcon(clip.type)}
+                    <span className='truncate'>{clip.text || clip.label}</span>
+                </div>
+            </div>
+        );
+    }
+
     return (
         <div className='absolute h-full w-full'>
             <div
                 className='flex h-full w-full flex-nowrap gap-1 p-1 text-xs text-white'
-                style={{ background: resolvedBackground }}>
-                {getKindIcon(kind)}
-                <span className='truncate'>{label}</span>
+                style={{ background }}>
+                {getKindIcon(clip.type)}
+                <span className='truncate'>{clip.label}</span>
             </div>
         </div>
     );

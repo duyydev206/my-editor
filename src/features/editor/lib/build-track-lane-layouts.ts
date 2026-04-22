@@ -1,29 +1,45 @@
 import { TimelineTrack, TrackMediaKind } from "../types";
-import {
-    DEFAULT_TIMELINE_TRACK_VISUAL_CONFIG,
-    TIMELINE_TRACK_VISUAL_CONFIG,
-} from "./timeline-track-visual-config";
+import { Pixels, TrackId } from "../types/primitives";
 
 export type TimelineTrackLaneLayout = {
-    trackId: string;
+    trackId: TrackId;
     kind: TrackMediaKind;
-    top: number;
-    laneHeight: number;
-    itemInsetY: number;
-    itemHeight: number;
-    resizeHandleWidth: number;
+    top: Pixels;
+    laneHeight: Pixels;
+    itemInsetY: Pixels;
+    itemHeight: Pixels;
+    resizeHandleWidth: Pixels;
 };
 
 export type BuildTrackLaneLayoutsResult = {
     layouts: TimelineTrackLaneLayout[];
-    totalHeight: number;
+    totalHeight: Pixels;
 };
 
-const clampPositive = (value: number, fallback: number) => {
+type TimelineTrackVisualConfig = {
+    laneHeight: Pixels;
+    itemInsetY: Pixels;
+    resizeHandleWidth: Pixels;
+};
+
+const DEFAULT_VISUAL_CONFIG: TimelineTrackVisualConfig = {
+    laneHeight: 35,
+    itemInsetY: 1.5,
+    resizeHandleWidth: 6,
+};
+
+const TRACK_VISUAL_CONFIG: Record<TrackMediaKind, TimelineTrackVisualConfig> = {
+    text: { laneHeight: 35, itemInsetY: 1.5, resizeHandleWidth: 6 },
+    shape: { laneHeight: 35, itemInsetY: 1.5, resizeHandleWidth: 6 },
+    audio: { laneHeight: 71, itemInsetY: 1.5, resizeHandleWidth: 6 },
+    video: { laneHeight: 71, itemInsetY: 1.5, resizeHandleWidth: 6 },
+    image: { laneHeight: 71, itemInsetY: 1.5, resizeHandleWidth: 6 },
+};
+
+const clampPositive = (value: number, fallback: number): number => {
     if (!Number.isFinite(value) || value <= 0) {
         return fallback;
     }
-
     return value;
 };
 
@@ -41,23 +57,14 @@ export const buildTrackLaneLayouts = (
 
     let currentTop = 0;
 
-    const layouts: TimelineTrackLaneLayout[] = sortedTracks.map((track) => {
-        const visualConfig =
-            TIMELINE_TRACK_VISUAL_CONFIG[track.kind] ??
-            DEFAULT_TIMELINE_TRACK_VISUAL_CONFIG;
+    const layouts = sortedTracks.map((track) => {
+        const config = TRACK_VISUAL_CONFIG[track.kind] ?? DEFAULT_VISUAL_CONFIG;
 
-        /**
-         * Use track.height if provided and valid.
-         * Otherwise fallback to visual config by kind.
-         */
-        const laneHeight = clampPositive(track.height, visualConfig.laneHeight);
+        const laneHeight = clampPositive(track.height, config.laneHeight);
 
-        /**
-         * Prevent inset from making item height invalid.
-         */
+        // Prevent invalid item height
         const maxInsetY = Math.max(0, (laneHeight - 1) / 2);
-        const itemInsetY = Math.min(visualConfig.itemInsetY, maxInsetY);
-
+        const itemInsetY = Math.min(config.itemInsetY, maxInsetY);
         const itemHeight = Math.max(1, laneHeight - itemInsetY * 2);
 
         const layout: TimelineTrackLaneLayout = {
@@ -67,11 +74,10 @@ export const buildTrackLaneLayouts = (
             laneHeight,
             itemInsetY,
             itemHeight,
-            resizeHandleWidth: visualConfig.resizeHandleWidth,
+            resizeHandleWidth: config.resizeHandleWidth,
         };
 
         currentTop += laneHeight;
-
         return layout;
     });
 
