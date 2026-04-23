@@ -86,6 +86,7 @@ const Timeline: React.FC = () => {
     const playbackDurationInFrames = getEditorPlaybackDurationInFrames(project);
     const currentFrame = runtime.player.currentFrame;
     const playbackStatus = runtime.player.status;
+    const timelineScrollLeft = runtime.timeline.viewport.scrollLeft;
     const zoomValue = runtime.timeline.zoom.zoomLevel;
     const laneResult = buildTrackLaneLayouts(tracks, clips);
     const sensors = useSensors(
@@ -107,6 +108,10 @@ const Timeline: React.FC = () => {
         laneResult.layouts,
         zoomComputed.pixelsPerFrame,
     );
+    const playheadViewportLeft =
+        TRACK_HEADER_WIDTH +
+        frameToPx(currentFrame, zoomComputed.pixelsPerFrame) -
+        timelineScrollLeft;
 
     const getClipDropPreview = (
         clipId: string,
@@ -359,7 +364,12 @@ const Timeline: React.FC = () => {
 
         if (!playhead) return;
 
-        const left = frameToPx(frame, zoomComputed.pixelsPerFrame);
+        const viewport = scrollViewportRef.current;
+        const scrollLeft = viewport?.scrollLeft ?? timelineScrollLeft;
+        const left =
+            TRACK_HEADER_WIDTH +
+            frameToPx(frame, zoomComputed.pixelsPerFrame) -
+            scrollLeft;
 
         // OLD logic: Pointer move updated React state and rebuilt the full timeline on every pixel.
         // NEW logic: Move the playhead element directly during drag, then commit the frame on release.
@@ -608,8 +618,8 @@ const Timeline: React.FC = () => {
                                 style={{ width: "111px" }}></div>
 
                             <div
-                                ref={timelineContentRef}
-                                className='relative h-full w-full'>
+                                className='relative h-full w-full'
+                                ref={timelineContentRef}>
                                 {/* ===== Tick header =====*/}
                                 <TimelineRuler
                                     fps={fps}
@@ -676,22 +686,23 @@ const Timeline: React.FC = () => {
                                         ))}
                                     </TimelineBody>
                                 </DndContext>
-
-                                {/* ===== Playhead ===== */}
-                                <Playhead
-                                    ref={playheadRef}
-                                    currentFrame={currentFrame}
-                                    durationInFrames={
-                                        zoomComputed.visibleDurationInFrames
-                                    }
-                                    pixelsPerFrame={zoomComputed.pixelsPerFrame}
-                                    isPlaying={playbackStatus === "playing"}
-                                    onScrubStart={handlePlayheadScrubStart}
-                                    onScrubMove={handlePlayheadScrubMove}
-                                    onScrubEnd={handlePlayheadScrubEnd}
-                                />
                             </div>
                         </div>
+
+                        {/* ===== Playhead overlay ===== */}
+                        <Playhead
+                            ref={playheadRef}
+                            currentFrame={currentFrame}
+                            durationInFrames={
+                                zoomComputed.visibleDurationInFrames
+                            }
+                            pixelsPerFrame={zoomComputed.pixelsPerFrame}
+                            leftOffset={playheadViewportLeft}
+                            isPlaying={playbackStatus === "playing"}
+                            onScrubStart={handlePlayheadScrubStart}
+                            onScrubMove={handlePlayheadScrubMove}
+                            onScrubEnd={handlePlayheadScrubEnd}
+                        />
                     </div>
                 </div>
             </div>

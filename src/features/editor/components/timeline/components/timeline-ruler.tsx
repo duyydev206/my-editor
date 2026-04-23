@@ -70,7 +70,7 @@ const TimelineRuler: React.FC<TimelineRulerProps> = ({
     };
 
     return (
-        <div className='sticky top-0 z-1'>
+        <div className='sticky top-0 z-20'>
             <div
                 className='min-w-full pointer-events-none absolute top-0 h-7 bg-gray-300'
                 style={{ width: timelineWidth }}
