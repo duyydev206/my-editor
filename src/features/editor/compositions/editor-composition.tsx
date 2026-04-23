@@ -3,20 +3,21 @@
 import React, { useMemo } from "react";
 import {
     AbsoluteFill,
+    Audio,
+    Img,
+    Sequence,
     useCurrentFrame,
     useVideoConfig,
     Video,
-    Audio,
-    Img,
 } from "remotion";
 import {
-    EditorProject,
-    TextClip,
-    VideoClip,
     AudioClip,
+    EditorProject,
     ImageClip,
+    TextClip,
     TimelineClip,
     TimelineTrack,
+    VideoClip,
 } from "../types";
 
 type EditorPreviewCompositionProps = {
@@ -150,7 +151,6 @@ const TextClipLayer: React.FC<{
 }> = ({ clip, frame, trackOrder }) => {
     const { fps } = useVideoConfig();
     const localFrame = getClipLocalFrame(clip, frame);
-
     const transition = getBasicClipTransitionStyle(clip, localFrame, fps);
 
     const transform = clip.transform ?? {
@@ -341,22 +341,21 @@ const EditorPreviewComposition: React.FC<EditorPreviewCompositionProps> = ({
 
     const visibleSortedClips = useMemo(() => {
         const trackMap = new Map(project.tracks.map((track) => [track.id, track]));
-        const visible = project.clips.filter(
-            (clip) => {
-                const track = trackMap.get(clip.trackId);
+        const visible = project.clips.filter((clip) => {
+            const track = trackMap.get(clip.trackId);
 
-                // OLD logic: Preview only respected clip.isHidden.
-                // NEW logic: Track hide state hides all clips in that lane from Preview.
-                return (
-                    !clip.isHidden &&
-                    !track?.isHidden &&
-                    isClipVisibleAtFrame(clip, frame)
-                );
-            },
-        );
+            // OLD logic: Preview only respected clip.isHidden.
+            // NEW logic: Track hide state hides all clips in that lane from Preview.
+            return (
+                !clip.isHidden &&
+                !track?.isHidden &&
+                isClipVisibleAtFrame(clip, frame)
+            );
+        });
 
         return sortVisualClipsForRender(visible, project.tracks);
     }, [frame, project.clips, project.tracks]);
+
     const trackMap = useMemo(() => {
         return new Map(project.tracks.map((track) => [track.id, track]));
     }, [project.tracks]);
@@ -375,57 +374,74 @@ const EditorPreviewComposition: React.FC<EditorPreviewCompositionProps> = ({
                 const trackOrder = getClipLayerIndex(clip);
                 const track = trackMap.get(clip.trackId);
                 const isTrackMuted = track?.isMuted ?? false;
+                let clipLayer: React.ReactNode = null;
 
                 switch (clip.type) {
                     case "text":
-                        return (
+                        clipLayer = (
                             <TextClipLayer
-                                key={clip.id}
                                 clip={clip}
                                 frame={frame}
                                 trackOrder={trackOrder}
                             />
                         );
+                        break;
 
-                    // NEW LOGIC SUPPORTING VIDEO, AUDIO AND IMAGE
                     case "video":
-                        return (
+                        clipLayer = (
                             <VideoClipLayer
-                                key={clip.id}
                                 clip={clip}
                                 frame={frame}
                                 trackOrder={trackOrder}
                                 isTrackMuted={isTrackMuted}
                             />
                         );
+                        break;
 
                     case "image":
-                        return (
+                        clipLayer = (
                             <ImageClipLayer
-                                key={clip.id}
                                 clip={clip}
                                 frame={frame}
                                 trackOrder={trackOrder}
                             />
                         );
+                        break;
 
                     case "audio":
-                        return (
+                        clipLayer = (
                             <AudioClipLayer
-                                key={clip.id}
                                 clip={clip}
                                 isTrackMuted={isTrackMuted}
                             />
                         );
-                    // END NEW LOGIC
+                        break;
 
                     default:
-                        // OLD LOGIC: return null; (Duy trì không thay đổi để bắt fallbacks)
-                        return null;
+                        clipLayer = null;
+                        break;
                 }
+
+                if (!clipLayer) {
+                    return null;
+                }
+
+                return (
+                    <Sequence
+                        key={clip.id}
+                        from={clip.from}
+                        durationInFrames={clip.durationInFrames}
+                        style={{
+                            pointerEvents: "none",
+                        }}>
+                        {/* OLD logic: Clip visibility was filtered by timeline frame, but media still rendered on the global composition frame.
+                            NEW logic: Each clip now renders inside a Remotion Sequence so source timing starts at clip.from. */}
+                        {clipLayer}
+                    </Sequence>
+                );
             })}
-            <span className='text-white text-end p-1'>
-                {width} × {height} • {fps} FPS • Frame {frame}
+            <span className='p-1 text-end text-white'>
+                {width} x {height} • {fps} FPS • Frame {frame}
             </span>
         </AbsoluteFill>
     );

@@ -1,6 +1,13 @@
 "use client";
 
-import { useEffect, useRef, useState, type PointerEvent } from "react";
+import {
+    useEffect,
+    useLayoutEffect,
+    useMemo,
+    useRef,
+    useState,
+    type PointerEvent,
+} from "react";
 import {
     DndContext,
     PointerSensor,
@@ -10,26 +17,20 @@ import {
     type DragMoveEvent,
     type DragStartEvent,
 } from "@dnd-kit/core";
-import Playhead from "./components/playhead";
 import TimelineRuler from "./components/timeline-ruler";
 import TimelineToolbar from "./components/timeline-toolbar";
 import TimelineBody from "./components/timeline-body";
 import TimelineItem from "./components/timeline-item";
+import TimelinePlayheadViewportLayer from "./components/timeline-playhead-viewport-layer";
 import { buildTrackLaneLayouts } from "../../lib/build-track-lane-layouts";
 import { buildClipLayouts } from "../../lib/build-clip-layouts";
 import TimelineTrackHeaders from "./components/timeline-track-headers";
 // import { TimelineClip, TimelineTrack } from "../../types";
 import { useEditorStore } from "../../stores";
-import {
-    frameToPx,
-    TIMELINE_GUTTER_X,
-    TRACK_HEADER_WIDTH,
-} from "../../lib/timeline-math";
+import { frameToPx, TRACK_HEADER_WIDTH } from "../../lib/timeline-math";
 import { computeTimelineZoom } from "../../lib/timeline-zoom-engine";
 import { getEditorPlaybackDurationInFrames } from "../../lib/playback-duration";
 
-const PLAYHEAD_PAGE_SCROLL_THRESHOLD = 2;
-const PLAYHEAD_SCRUB_STORE_SYNC_INTERVAL_MS = 33;
 const TIMELINE_MIN_PANEL_HEIGHT = 220;
 const PREVIEW_MIN_PANEL_HEIGHT = 140;
 
@@ -48,24 +49,17 @@ type TimelineBoundaryScrollEvent = CustomEvent<{
     position: "start" | "end";
 }>;
 
-type PreviewSeekEvent = CustomEvent<{
-    frame: number;
-}>;
-
 const Timeline: React.FC = () => {
     const scrollViewportRef = useRef<HTMLDivElement>(null);
     const timelineContentRef = useRef<HTMLDivElement>(null);
     const timelineRootRef = useRef<HTMLDivElement>(null);
-    const playheadRef = useRef<HTMLDivElement>(null);
-    const scrubFrameRef = useRef<number | null>(null);
-    const scrubSyncTimeoutRef = useRef<number | null>(null);
-    const scrubLastSyncedAtRef = useRef(0);
-    const scrubPreviewAnimationFrameRef = useRef<number | null>(null);
+    const timelineScrollRafRef = useRef<number | null>(null);
+    const [horizontalScrollbarHeight, setHorizontalScrollbarHeight] =
+        useState(0);
     const [clipDropPreview, setClipDropPreview] =
         useState<ClipDropPreview | null>(null);
     const [draggingClipId, setDraggingClipId] = useState<string | null>(null);
     const project = useEditorStore((state) => state.project);
-    const runtime = useEditorStore((state) => state.runtime);
     const selectedClipIds = useEditorStore(
         (state) => state.runtime.selection.selectedClipIds,
     );
@@ -74,7 +68,6 @@ const Timeline: React.FC = () => {
     );
     const moveClip = useEditorStore((state) => state.moveClip);
     const seekToFrame = useEditorStore((state) => state.seekToFrame);
-    const pause = useEditorStore((state) => state.pause);
     const deleteSelectedClips = useEditorStore(
         (state) => state.deleteSelectedClips,
     );
@@ -90,12 +83,12 @@ const Timeline: React.FC = () => {
     const fps = project.video.fps;
     const durationInFrames = project.video.durationInFrames;
     const playbackDurationInFrames = getEditorPlaybackDurationInFrames(project);
-    const currentFrame = runtime.player.currentFrame;
-    const playbackStatus = runtime.player.status;
-    const timelineScrollLeft = runtime.timeline.viewport.scrollLeft;
-    const timelinePanelHeight = runtime.timeline.panelHeight;
-    const zoomValue = runtime.timeline.zoom.zoomLevel;
-    const laneResult = buildTrackLaneLayouts(tracks, clips);
+    const timelinePanelHeight = useEditorStore(
+        (state) => state.runtime.timeline.panelHeight,
+    );
+    const zoomValue = useEditorStore(
+        (state) => state.runtime.timeline.zoom.zoomLevel,
+    );
     const sensors = useSensors(
         useSensor(PointerSensor, {
             activationConstraint: {
@@ -109,16 +102,18 @@ const Timeline: React.FC = () => {
         zoomLevel: zoomValue,
     });
 
-    const clipLayouts = buildClipLayouts(
-        clips,
-        tracks,
-        laneResult.layouts,
-        zoomComputed.pixelsPerFrame,
-    );
-    const playheadViewportLeft =
-        TRACK_HEADER_WIDTH +
-        frameToPx(currentFrame, zoomComputed.pixelsPerFrame) -
-        timelineScrollLeft;
+    const laneResult = useMemo(() => {
+        return buildTrackLaneLayouts(tracks, clips);
+    }, [tracks, clips]);
+
+    const clipLayouts = useMemo(() => {
+        return buildClipLayouts(
+            clips,
+            tracks,
+            laneResult.layouts,
+            zoomComputed.pixelsPerFrame,
+        );
+    }, [clips, tracks, laneResult.layouts, zoomComputed.pixelsPerFrame]);
 
     const getClipDropPreview = (
         clipId: string,
@@ -297,209 +292,6 @@ const Timeline: React.FC = () => {
         setClipDropPreview(null);
     };
 
-    const getFrameFromClientX = (clientX: number) => {
-        const content = timelineContentRef.current;
-        if (!content || zoomComputed.pixelsPerFrame <= 0) return null;
-
-        const rect = content.getBoundingClientRect();
-        const timelineX = clientX - rect.left;
-        const frame = Math.round(
-            (timelineX - TIMELINE_GUTTER_X) / zoomComputed.pixelsPerFrame,
-        );
-
-        return Math.max(0, Math.min(frame, playbackDurationInFrames));
-    };
-
-    const syncPreviewToScrubFrame = () => {
-        const frame = scrubFrameRef.current;
-
-        scrubPreviewAnimationFrameRef.current = null;
-
-        if (frame === null) return;
-
-        const event: PreviewSeekEvent = new CustomEvent(
-            "editor:preview-seek-frame",
-            {
-                detail: { frame },
-            },
-        );
-
-        window.dispatchEvent(event);
-    };
-
-    const schedulePreviewScrubSync = () => {
-        if (scrubPreviewAnimationFrameRef.current !== null) return;
-
-        scrubPreviewAnimationFrameRef.current = window.requestAnimationFrame(
-            syncPreviewToScrubFrame,
-        );
-    };
-
-    const syncStoreToScrubFrame = (frame: number) => {
-        const now = window.performance.now();
-        const elapsed = now - scrubLastSyncedAtRef.current;
-
-        if (elapsed >= PLAYHEAD_SCRUB_STORE_SYNC_INTERVAL_MS) {
-            scrubLastSyncedAtRef.current = now;
-            seekToFrame(frame);
-            return;
-        }
-
-        if (scrubSyncTimeoutRef.current !== null) return;
-
-        scrubSyncTimeoutRef.current = window.setTimeout(() => {
-            const nextFrame = scrubFrameRef.current;
-
-            scrubSyncTimeoutRef.current = null;
-            scrubLastSyncedAtRef.current = window.performance.now();
-
-            if (nextFrame !== null) {
-                // OLD logic: Preview/time only updated after releasing the playhead.
-                // NEW logic: Sync store time at a capped rate while preview seeks on animation frames.
-                seekToFrame(nextFrame);
-            }
-        }, PLAYHEAD_SCRUB_STORE_SYNC_INTERVAL_MS - elapsed);
-    };
-
-    const scrubToClientX = (clientX: number) => {
-        const frame = getFrameFromClientX(clientX);
-
-        if (frame === null) return;
-
-        scrubFrameRef.current = frame;
-        const playhead = playheadRef.current;
-
-        if (!playhead) return;
-
-        const viewport = scrollViewportRef.current;
-        const scrollLeft = viewport?.scrollLeft ?? timelineScrollLeft;
-        const left =
-            TRACK_HEADER_WIDTH +
-            frameToPx(frame, zoomComputed.pixelsPerFrame) -
-            scrollLeft;
-
-        // OLD logic: Pointer move updated React state and rebuilt the full timeline on every pixel.
-        // NEW logic: Move the playhead element directly during drag, then commit the frame on release.
-        playhead.style.transition = "none";
-        playhead.style.transform = `translate3d(${left}px, 0, 0)`;
-
-        schedulePreviewScrubSync();
-        syncStoreToScrubFrame(frame);
-    };
-
-    const handlePlayheadScrubStart = (event: PointerEvent<HTMLDivElement>) => {
-        event.preventDefault();
-        event.stopPropagation();
-
-        if (playbackStatus === "playing") {
-            pause();
-        }
-
-        // OLD logic: The playhead could only be moved by clicking the ruler.
-        // NEW logic: Dragging the original playhead marker scrubs the shared frame.
-        scrubToClientX(event.clientX);
-    };
-
-    const handlePlayheadScrubMove = (event: PointerEvent<HTMLDivElement>) => {
-        event.preventDefault();
-        event.stopPropagation();
-
-        scrubToClientX(event.clientX);
-    };
-
-    const handlePlayheadScrubEnd = (event: PointerEvent<HTMLDivElement>) => {
-        event.preventDefault();
-        event.stopPropagation();
-
-        const frame = scrubFrameRef.current;
-
-        if (frame !== null) {
-            seekToFrame(frame);
-        }
-
-        if (scrubSyncTimeoutRef.current !== null) {
-            window.clearTimeout(scrubSyncTimeoutRef.current);
-            scrubSyncTimeoutRef.current = null;
-        }
-
-        if (scrubPreviewAnimationFrameRef.current !== null) {
-            window.cancelAnimationFrame(scrubPreviewAnimationFrameRef.current);
-            scrubPreviewAnimationFrameRef.current = null;
-        }
-
-        if (playheadRef.current) {
-            playheadRef.current.style.transition = "";
-        }
-
-        scrubFrameRef.current = null;
-        scrubLastSyncedAtRef.current = 0;
-    };
-
-    useEffect(() => {
-        return () => {
-            if (scrubSyncTimeoutRef.current !== null) {
-                window.clearTimeout(scrubSyncTimeoutRef.current);
-            }
-
-            if (scrubPreviewAnimationFrameRef.current !== null) {
-                window.cancelAnimationFrame(
-                    scrubPreviewAnimationFrameRef.current,
-                );
-            }
-        };
-    }, []);
-
-    useEffect(() => {
-        const viewport = scrollViewportRef.current;
-        if (!viewport) return;
-        if (playbackStatus !== "playing") return;
-
-        const playheadX = frameToPx(currentFrame, zoomComputed.pixelsPerFrame);
-        const playheadViewportX =
-            TRACK_HEADER_WIDTH + playheadX - viewport.scrollLeft;
-
-        if (
-            playheadViewportX <
-            viewport.clientWidth - PLAYHEAD_PAGE_SCROLL_THRESHOLD
-        ) {
-            return;
-        }
-
-        const targetScrollLeft = Math.max(
-            0,
-            Math.min(
-                playheadX - TIMELINE_GUTTER_X,
-                viewport.scrollWidth - viewport.clientWidth,
-            ),
-        );
-
-        // OLD logic: The playhead could move past the visible track area while playback continued.
-        // NEW logic: Page-scroll only when the playhead reaches the right edge, making that time the new track start.
-        viewport.scrollTo({
-            left: targetScrollLeft,
-            behavior: "auto",
-        });
-    }, [currentFrame, playbackStatus, zoomComputed.pixelsPerFrame]);
-
-    useEffect(() => {
-        const viewport = scrollViewportRef.current;
-        if (!viewport) return;
-        if (playbackStatus === "playing") return;
-        if (scrubFrameRef.current !== null) return;
-
-        if (currentFrame <= 0) {
-            viewport.scrollTo({ left: 0, behavior: "auto" });
-            return;
-        }
-
-        if (currentFrame >= playbackDurationInFrames) {
-            viewport.scrollTo({
-                left: Math.max(0, viewport.scrollWidth - viewport.clientWidth),
-                behavior: "auto",
-            });
-        }
-    }, [currentFrame, playbackDurationInFrames, playbackStatus]);
-
     useEffect(() => {
         const handleBoundaryScroll = (event: Event) => {
             const viewport = scrollViewportRef.current;
@@ -577,6 +369,36 @@ const Timeline: React.FC = () => {
         };
     }, []);
 
+    useEffect(() => {
+        return () => {
+            if (timelineScrollRafRef.current !== null) {
+                window.cancelAnimationFrame(timelineScrollRafRef.current);
+            }
+        };
+    }, []);
+
+    useLayoutEffect(() => {
+        const viewport = scrollViewportRef.current;
+        if (!viewport) return;
+
+        const syncScrollbarMetrics = () => {
+            setHorizontalScrollbarHeight(
+                Math.max(0, viewport.offsetHeight - viewport.clientHeight),
+            );
+        };
+
+        syncScrollbarMetrics();
+
+        const resizeObserver = new ResizeObserver(syncScrollbarMetrics);
+        resizeObserver.observe(viewport);
+        window.addEventListener("resize", syncScrollbarMetrics);
+
+        return () => {
+            resizeObserver.disconnect();
+            window.removeEventListener("resize", syncScrollbarMetrics);
+        };
+    }, []);
+
     const handleTimelineResizeStart = (event: PointerEvent<HTMLDivElement>) => {
         event.preventDefault();
         event.stopPropagation();
@@ -644,14 +466,23 @@ const Timeline: React.FC = () => {
                             className='flex h-full w-full overflow-x-scroll overflow-y-scroll'
                             onScroll={(event) => {
                                 const element = event.currentTarget;
+                                if (timelineScrollRafRef.current !== null) {
+                                    window.cancelAnimationFrame(
+                                        timelineScrollRafRef.current,
+                                    );
+                                }
 
-                                setTimelineScroll({
-                                    scrollLeft: element.scrollLeft,
-                                    scrollTop: element.scrollTop,
-                                });
+                                timelineScrollRafRef.current =
+                                    window.requestAnimationFrame(() => {
+                                        setTimelineScroll({
+                                            scrollLeft: element.scrollLeft,
+                                            scrollTop: element.scrollTop,
+                                        });
+                                        timelineScrollRafRef.current = null;
+                                    });
                             }}>
                             {/* ===== Track controls ===== */}
-                            <div className='sticky left-0 flex flex-col min-h-0 h-full z-20 min-w-28 bg-white'>
+                            <div className='sticky left-0 flex flex-col min-h-0 h-full z-30 min-w-28 bg-white'>
                                 <TimelineTrackHeaders
                                     tracks={tracks}
                                     lanes={laneResult.layouts}
@@ -661,8 +492,8 @@ const Timeline: React.FC = () => {
 
                             {/* ===== Track corner ===== */}
                             <div
-                                className='absolute top-0 left-0 h-7 z-20 bg-gray-300'
-                                style={{ width: "111px" }}></div>
+                                className='absolute top-0 left-0 h-7 z-30 bg-gray-300'
+                                style={{ width: TRACK_HEADER_WIDTH }}></div>
 
                             <div
                                 className='relative h-full w-full'
@@ -734,22 +565,25 @@ const Timeline: React.FC = () => {
                                     </TimelineBody>
                                 </DndContext>
                             </div>
+                            <div
+                                className='pointer-events-none absolute top-0 right-0 bottom-0 z-20 overflow-hidden'
+                                style={{
+                                    left: TRACK_HEADER_WIDTH,
+                                    bottom: horizontalScrollbarHeight,
+                                }}>
+                                <TimelinePlayheadViewportLayer
+                                    scrollViewportRef={scrollViewportRef}
+                                    timelineContentRef={timelineContentRef}
+                                    pixelsPerFrame={zoomComputed.pixelsPerFrame}
+                                    visibleDurationInFrames={
+                                        zoomComputed.visibleDurationInFrames
+                                    }
+                                    playbackDurationInFrames={
+                                        playbackDurationInFrames
+                                    }
+                                />
+                            </div>
                         </div>
-
-                        {/* ===== Playhead overlay ===== */}
-                        <Playhead
-                            ref={playheadRef}
-                            currentFrame={currentFrame}
-                            durationInFrames={
-                                zoomComputed.visibleDurationInFrames
-                            }
-                            pixelsPerFrame={zoomComputed.pixelsPerFrame}
-                            leftOffset={playheadViewportLeft}
-                            isPlaying={playbackStatus === "playing"}
-                            onScrubStart={handlePlayheadScrubStart}
-                            onScrubMove={handlePlayheadScrubMove}
-                            onScrubEnd={handlePlayheadScrubEnd}
-                        />
                     </div>
                 </div>
             </div>

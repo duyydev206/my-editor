@@ -46,9 +46,9 @@ const Playhead = forwardRef<HTMLDivElement, PlayheadProps>(
                 style={{
                     left: 0,
                     transform: `translate3d(${left}px, 0, 0)`,
-                    // OLD logic: The transformed playhead had no explicit stacking layer and could render behind the sticky ruler.
-                    // NEW logic: Keep the original UI, but raise the playhead layer so the marker head stays visible.
-                    zIndex: 100,
+                    // OLD logic: The playhead carried its own very high z-index and could break the timeline stacking order.
+                    // NEW logic: The viewport layer controls stacking; the playhead only needs a local baseline.
+                    zIndex: 1,
                     // OLD logic: Playhead jumped frame-by-frame with no visual interpolation.
                     // NEW logic: Use composited transform updates with a short linear transition for smoother playback.
                     transition: isPlaying ? "transform 40ms linear" : undefined,
