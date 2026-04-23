@@ -44,6 +44,7 @@ export type EditorStoreActions = {
         viewportWidth: Pixels;
         viewportHeight: Pixels;
     }) => void;
+    setTimelinePanelHeight: (panelHeight: Pixels) => void;
     setTimelineScroll: (payload: {
         scrollLeft?: Pixels;
         scrollTop?: Pixels;

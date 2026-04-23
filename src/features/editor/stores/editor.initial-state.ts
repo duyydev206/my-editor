@@ -206,6 +206,7 @@ export const INITIAL_EDITOR_STATE: EditorState = {
                 showThumbnails: true,
                 isLoopEnabled: false,
             },
+            panelHeight: 320,
         },
 
         selection: {

@@ -30,6 +30,8 @@ import { getEditorPlaybackDurationInFrames } from "../../lib/playback-duration";
 
 const PLAYHEAD_PAGE_SCROLL_THRESHOLD = 2;
 const PLAYHEAD_SCRUB_STORE_SYNC_INTERVAL_MS = 33;
+const TIMELINE_MIN_PANEL_HEIGHT = 220;
+const PREVIEW_MIN_PANEL_HEIGHT = 140;
 
 type ClipDropPreview = {
     clipId: string;
@@ -53,6 +55,7 @@ type PreviewSeekEvent = CustomEvent<{
 const Timeline: React.FC = () => {
     const scrollViewportRef = useRef<HTMLDivElement>(null);
     const timelineContentRef = useRef<HTMLDivElement>(null);
+    const timelineRootRef = useRef<HTMLDivElement>(null);
     const playheadRef = useRef<HTMLDivElement>(null);
     const scrubFrameRef = useRef<number | null>(null);
     const scrubSyncTimeoutRef = useRef<number | null>(null);
@@ -78,6 +81,9 @@ const Timeline: React.FC = () => {
     const setTimelineScroll = useEditorStore(
         (state) => state.setTimelineScroll,
     );
+    const setTimelinePanelHeight = useEditorStore(
+        (state) => state.setTimelinePanelHeight,
+    );
 
     const tracks = project.tracks;
     const clips = project.clips;
@@ -87,6 +93,7 @@ const Timeline: React.FC = () => {
     const currentFrame = runtime.player.currentFrame;
     const playbackStatus = runtime.player.status;
     const timelineScrollLeft = runtime.timeline.viewport.scrollLeft;
+    const timelinePanelHeight = runtime.timeline.panelHeight;
     const zoomValue = runtime.timeline.zoom.zoomLevel;
     const laneResult = buildTrackLaneLayouts(tracks, clips);
     const sensors = useSensors(
@@ -570,8 +577,47 @@ const Timeline: React.FC = () => {
         };
     }, []);
 
+    const handleTimelineResizeStart = (event: PointerEvent<HTMLDivElement>) => {
+        event.preventDefault();
+        event.stopPropagation();
+
+        const timelineRoot = timelineRootRef.current;
+        const gridContainer = timelineRoot?.parentElement?.parentElement;
+
+        if (!timelineRoot || !gridContainer) return;
+
+        const startPointerY = event.clientY;
+        const startPanelHeight = timelinePanelHeight;
+        const maxPanelHeight = Math.max(
+            TIMELINE_MIN_PANEL_HEIGHT,
+            gridContainer.clientHeight - PREVIEW_MIN_PANEL_HEIGHT,
+        );
+
+        const handlePointerMove = (moveEvent: globalThis.PointerEvent) => {
+            const deltaY = startPointerY - moveEvent.clientY;
+            const nextPanelHeight = Math.max(
+                TIMELINE_MIN_PANEL_HEIGHT,
+                Math.min(maxPanelHeight, startPanelHeight + deltaY),
+            );
+
+            setTimelinePanelHeight(nextPanelHeight);
+        };
+
+        const handlePointerEnd = () => {
+            window.removeEventListener("pointermove", handlePointerMove);
+            window.removeEventListener("pointerup", handlePointerEnd);
+            window.removeEventListener("pointercancel", handlePointerEnd);
+        };
+
+        window.addEventListener("pointermove", handlePointerMove);
+        window.addEventListener("pointerup", handlePointerEnd);
+        window.addEventListener("pointercancel", handlePointerEnd);
+    };
+
     return (
-        <div className='w-full max-h-full h-full flex flex-col'>
+        <div
+            ref={timelineRootRef}
+            className='w-full max-h-full h-full flex flex-col'>
             <TimelineToolbar />
             {/* ===== Resize handdle ===== */}
             <div className='relative w-full'>
@@ -583,6 +629,7 @@ const Timeline: React.FC = () => {
                         height: "5px",
                         top: "-2px",
                     }}
+                    onPointerDown={handleTimelineResizeStart}
                 />
             </div>
             {/* ===== Timeline outer ===== */}

@@ -742,6 +742,18 @@ export const useEditorStore = create<EditorStore>((set, get) => ({
         }));
     },
 
+    setTimelinePanelHeight: (panelHeight) => {
+        set((state) => ({
+            runtime: {
+                ...state.runtime,
+                timeline: {
+                    ...state.runtime.timeline,
+                    panelHeight: Math.max(220, Math.round(panelHeight)),
+                },
+            },
+        }));
+    },
+
     setTimelineScroll: ({ scrollLeft, scrollTop }) => {
         set((state) => ({
             runtime: {
