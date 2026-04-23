@@ -77,6 +77,7 @@ export type TimelineClipBase = {
 
     label: string;
     color: HexColor;
+    layerIndex: number;
 
     transform?: ClipTransform;
 

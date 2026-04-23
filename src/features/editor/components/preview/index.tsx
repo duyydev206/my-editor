@@ -12,6 +12,10 @@ import {
 } from "../../stores";
 import { getEditorPlaybackDurationInFrames } from "../../lib/playback-duration";
 
+type PreviewSeekEvent = CustomEvent<{
+    frame: number;
+}>;
+
 const EditorPlayer = () => {
     const playerRef = useRef<PlayerRef>(null);
     const { ref, size } = useElementSize<HTMLDivElement>();
@@ -149,6 +153,39 @@ const EditorPlayer = () => {
                 instance.seekTo(frameForPlayer);
             }
         });
+    }, []);
+
+    useEffect(() => {
+        const handlePreviewSeek = (event: Event) => {
+            const instance = playerRef.current;
+            if (!instance) return;
+
+            const seekEvent = event as PreviewSeekEvent;
+            const { project, runtime } = useEditorStore.getState();
+            if (runtime.player.status === "playing") return;
+
+            const playbackDuration =
+                getEditorPlaybackDurationInFrames(project);
+            const frameForPlayer = Math.min(
+                seekEvent.detail.frame,
+                Math.max(0, playbackDuration - 1),
+            );
+
+            if (instance.getCurrentFrame() === frameForPlayer) return;
+
+            // OLD logic: Scrubbing waited for store updates before Preview could seek.
+            // NEW logic: Timeline drag sends an animation-frame seek event directly to the Player.
+            instance.seekTo(frameForPlayer);
+        };
+
+        window.addEventListener("editor:preview-seek-frame", handlePreviewSeek);
+
+        return () => {
+            window.removeEventListener(
+                "editor:preview-seek-frame",
+                handlePreviewSeek,
+            );
+        };
     }, []);
 
     return (

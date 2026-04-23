@@ -101,26 +101,20 @@ const ensureTrackForKind = (
     tracks: TimelineTrack[];
     trackGroups: TimelineTrackGroup[];
 } => {
-    const existingTrack = project.tracks.find((track) => track.kind === kind);
-
-    if (existingTrack) {
-        return {
-            trackId: existingTrack.id,
-            tracks: project.tracks,
-            trackGroups: project.trackGroups,
-        };
-    }
-
     const existingGroup = getCompatibleGroup(project.trackGroups, kind);
     const groupId = existingGroup?.id ?? getNextId(`group-${kind}`);
     const trackId = getNextId(`track-${kind}`);
+    const shiftedTracks = project.tracks.map((track) => ({
+        ...track,
+        index: track.index + 1,
+    }));
 
     const nextTrack: TimelineTrack = {
         id: trackId,
         groupId,
         label: getTrackLabel(kind),
         kind,
-        index: project.tracks.length,
+        index: 0,
         height: DEFAULT_TRACK_HEIGHT_BY_KIND[kind],
         isLocked: false,
         isMuted: false,
@@ -132,7 +126,7 @@ const ensureTrackForKind = (
               group.id === existingGroup.id
                   ? {
                         ...group,
-                        trackIds: [...group.trackIds, trackId],
+                        trackIds: [trackId, ...group.trackIds],
                     }
                   : group,
           )
@@ -152,9 +146,154 @@ const ensureTrackForKind = (
 
     return {
         trackId,
-        tracks: [...project.tracks, nextTrack],
+        // OLD logic: New clips reused an existing lane when possible.
+        // NEW logic: Each new clip creates a new top lane; layerIndex controls preview stacking above older clips.
+        tracks: [nextTrack, ...shiftedTracks],
         trackGroups: nextTrackGroups,
     };
+};
+
+const createTrackForMovedClip = (
+    project: EditorProject,
+    kind: TrackMediaKind,
+    placement: "above" | "below",
+): {
+    trackId: string;
+    tracks: TimelineTrack[];
+    trackGroups: TimelineTrackGroup[];
+} => {
+    const existingGroup = getCompatibleGroup(project.trackGroups, kind);
+    const groupId = existingGroup?.id ?? getNextId(`group-${kind}`);
+    const trackId = getNextId(`track-${kind}`);
+    const insertAtTop = placement === "above";
+    const nextIndex = insertAtTop
+        ? 0
+        : project.tracks.reduce((maxIndex, track) => {
+              return Math.max(maxIndex, track.index);
+          }, -1) + 1;
+    const nextTrack: TimelineTrack = {
+        id: trackId,
+        groupId,
+        label: getTrackLabel(kind),
+        kind,
+        index: nextIndex,
+        height: DEFAULT_TRACK_HEIGHT_BY_KIND[kind],
+        isLocked: false,
+        isMuted: false,
+        isHidden: false,
+    };
+    const shiftedTracks = insertAtTop
+        ? project.tracks.map((track) => ({
+              ...track,
+              index: track.index + 1,
+          }))
+        : project.tracks;
+    const nextTrackGroups = existingGroup
+        ? project.trackGroups.map((group) => {
+              if (group.id !== existingGroup.id) return group;
+
+              return {
+                  ...group,
+                  trackIds: insertAtTop
+                      ? [trackId, ...group.trackIds]
+                      : [...group.trackIds, trackId],
+              };
+          })
+        : [
+              ...project.trackGroups,
+              {
+                  id: groupId,
+                  label: getGroupLabel(kind),
+                  kind,
+                  trackIds: [trackId],
+                  isCollapsed: false,
+                  isLocked: false,
+                  isMuted: false,
+                  isHidden: false,
+              },
+          ];
+
+    return {
+        trackId,
+        // OLD logic: Moving a clip could only target an already existing lane.
+        // NEW logic: Dragging beyond the lane stack creates a new top/bottom lane for that clip.
+        tracks: insertAtTop
+            ? [nextTrack, ...shiftedTracks]
+            : [...shiftedTracks, nextTrack],
+        trackGroups: nextTrackGroups,
+    };
+};
+
+const getClipOverlapInTrack = ({
+    clips,
+    clipId,
+    trackId,
+    from,
+    durationInFrames,
+}: {
+    clips: TimelineClip[];
+    clipId: string;
+    trackId: string;
+    from: number;
+    durationInFrames: number;
+}) => {
+    const nextStart = from;
+    const nextEnd = from + durationInFrames;
+
+    return (
+        clips.find((clip) => {
+            if (clip.id === clipId || clip.trackId !== trackId) return false;
+
+            const clipStart = clip.from;
+            const clipEnd = clip.from + clip.durationInFrames;
+
+            return nextStart < clipEnd && nextEnd > clipStart;
+        }) ?? null
+    );
+};
+
+const getNextNonOverlappingFrameInTrack = ({
+    clips,
+    clipId,
+    trackId,
+    requestedFrom,
+    durationInFrames,
+}: {
+    clips: TimelineClip[];
+    clipId: string;
+    trackId: string;
+    requestedFrom: number;
+    durationInFrames: number;
+}) => {
+    const trackClips = clips
+        .filter((clip) => clip.id !== clipId && clip.trackId === trackId)
+        .sort((a, b) => a.from - b.from);
+
+    if (trackClips.length === 0) {
+        return requestedFrom;
+    }
+
+    let nextFrom = requestedFrom;
+    let overlappingClip = getClipOverlapInTrack({
+        clips,
+        clipId,
+        trackId,
+        from: nextFrom,
+        durationInFrames,
+    });
+
+    while (overlappingClip) {
+        nextFrom = overlappingClip.from + overlappingClip.durationInFrames;
+        overlappingClip = getClipOverlapInTrack({
+            clips,
+            clipId,
+            trackId,
+            from: nextFrom,
+            durationInFrames,
+        });
+    }
+
+    return nextFrom;
 };
 
 const getCenteredTransform = (
@@ -191,6 +330,16 @@ const getMediaClipDuration = (project: EditorProject, asset: MediaAsset) => {
     }
 
     return asset.durationInFrames ?? project.video.fps * 5;
+};
+
+const getNextLayerIndex = (clips: TimelineClip[]) => {
+    if (clips.length === 0) return 0;
+
+    return (
+        clips.reduce((maxLayerIndex, clip) => {
+            return Math.max(maxLayerIndex, clip.layerIndex);
+        }, 0) + 1
+    );
 };
 
 const removeEmptyTracks = (
@@ -723,6 +872,7 @@ export const useEditorStore = create<EditorStore>((set, get) => ({
                 sourceStartFrame: 0,
                 label: text,
                 color: CLIP_COLOR_BY_KIND.text,
+                layerIndex: getNextLayerIndex(state.project.clips),
                 isLocked: false,
                 isHidden: false,
                 text,
@@ -780,6 +930,7 @@ export const useEditorStore = create<EditorStore>((set, get) => ({
                 sourceStartFrame: 0,
                 label: asset.name,
                 color: CLIP_COLOR_BY_KIND[asset.kind],
+                layerIndex: getNextLayerIndex(state.project.clips),
                 isLocked: false,
                 isHidden: false,
             };
@@ -842,6 +993,122 @@ export const useEditorStore = create<EditorStore>((set, get) => ({
                         selectedClipIds: [clipId],
                         selectedTrackId: trackId,
                         selectedGroupId: null,
+                    },
+                },
+            };
+        });
+    },
+
+    moveClip: ({ clipId, from, trackId, createTrackPlacement }) => {
+        set((state) => {
+            const clip = state.project.clips.find((item) => item.id === clipId);
+
+            if (!clip || clip.isLocked) {
+                return state;
+            }
+
+            const currentTrack = state.project.tracks.find((track) => {
+                return track.id === clip.trackId;
+            });
+
+            if (!currentTrack || currentTrack.isLocked) {
+                return state;
+            }
+
+            const trackPlacement = createTrackPlacement
+                ? createTrackForMovedClip(
+                      state.project,
+                      clip.type,
+                      createTrackPlacement,
+                  )
+                : null;
+            const projectTracks = trackPlacement?.tracks ?? state.project.tracks;
+            const projectTrackGroups =
+                trackPlacement?.trackGroups ?? state.project.trackGroups;
+            const nextTrackId =
+                trackPlacement?.trackId ?? trackId ?? currentTrack.id;
+            const nextTrack = projectTracks.find((track) => {
+                return track.id === nextTrackId;
+            });
+
+            if (!nextTrack) {
+                return state;
+            }
+
+            if (nextTrack.isLocked) {
+                return state;
+            }
+
+            const requestedFrom = Math.max(0, Math.round(from));
+            const overlappingClip = getClipOverlapInTrack({
+                clips: state.project.clips,
+                clipId,
+                trackId: nextTrack.id,
+                from: requestedFrom,
+                durationInFrames: clip.durationInFrames,
+            });
+            const nextFrom = overlappingClip
+                ? getNextNonOverlappingFrameInTrack({
+                      clips: state.project.clips,
+                      clipId,
+                      trackId: nextTrack.id,
+                      requestedFrom,
+                      durationInFrames: clip.durationInFrames,
+                  })
+                : requestedFrom;
+
+            // OLD logic: Overlap drops could snap to the nearest free slot, including before the target clip.
+            // NEW logic: Dropping onto a clip walks forward to the next free frame so clips sit after the overlap.
+            const movedClips = state.project.clips.map((item) => {
+                if (item.id !== clipId) return item;
+
+                return {
+                    ...item,
+                    from: nextFrom,
+                    trackId: nextTrack.id,
+                };
+            });
+            const { tracks, trackGroups } = removeEmptyTracks(
+                projectTracks,
+                projectTrackGroups,
+                movedClips,
+            );
+            const clips = movedClips;
+            const durationInFrames = getProjectDurationInFrames(clips);
+
+            // OLD logic: Clip movement was constrained to same-kind lanes.
+            // NEW logic: Any clip kind can move to any unlocked lane; overlap drops snap beside existing clips.
+            return {
+                project: {
+                    ...state.project,
+                    trackGroups,
+                    tracks,
+                    clips,
+                    video: {
+                        ...state.project.video,
+                        durationInFrames,
+                    },
+                },
+                runtime: {
+                    ...state.runtime,
+                    player: {
+                        ...state.runtime.player,
+                        currentFrame: clampFrame(
+                            state.runtime.player.currentFrame,
+                            getEditorPlaybackDurationInFrames({
+                                ...state.project,
+                                clips,
+                                video: {
+                                    ...state.project.video,
+                                    durationInFrames,
+                                },
+                            }),
+                        ),
+                    },
+                    selection: {
+                        ...state.runtime.selection,
+                        selectedClipIds: [clipId],
+                        selectedTrackId: nextTrack.id,
                     },
                 },
             };

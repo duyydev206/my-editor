@@ -67,6 +67,12 @@ export type EditorStoreActions = {
         durationInFrames?: Frames;
     }) => void;
     addMediaAssetAsClip: (payload: { asset: MediaAsset }) => void;
+    moveClip: (payload: {
+        clipId: string;
+        from: Frame;
+        trackId?: string;
+        createTrackPlacement?: "above" | "below";
+    }) => void;
 
     // ===== Text Editing =====
     startTextEditing: (payload: { clipId: string; draftText: string }) => void;

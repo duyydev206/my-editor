@@ -59,6 +59,7 @@ const fallbackProject: EditorProject = {
             sourceStartFrame: 0,
             label: "Hello World",
             color: "#3b82f6",
+            layerIndex: 0,
             isLocked: false,
             isHidden: false,
             text: "Hello World",
@@ -91,6 +92,10 @@ const getTrackIndexMap = (tracks: TimelineTrack[]) => {
     return new Map(tracks.map((track) => [track.id, track.index]));
 };
 
+const getClipLayerIndex = (clip: TimelineClip) => {
+    return clip.layerIndex;
+};
+
 const sortVisualClipsForRender = (
     clips: TimelineClip[],
     tracks: TimelineTrack[],
@@ -98,6 +103,13 @@ const sortVisualClipsForRender = (
     const trackIndexMap = getTrackIndexMap(tracks);
 
     return [...clips].sort((a, b) => {
+        const aLayerIndex = getClipLayerIndex(a);
+        const bLayerIndex = getClipLayerIndex(b);
+
+        if (aLayerIndex !== bLayerIndex) {
+            return aLayerIndex - bLayerIndex;
+        }
+
         const aTrackIndex = trackIndexMap.get(a.trackId) ?? 0;
         const bTrackIndex = trackIndexMap.get(b.trackId) ?? 0;
 
@@ -287,9 +299,7 @@ const ImageClipLayer: React.FC<{
 
 const AudioClipLayer: React.FC<{
     clip: AudioClip;
-    frame: number;
-    trackOrder: number;
-}> = ({ clip, frame, trackOrder }) => {
+}> = ({ clip }) => {
     return (
         <Audio
             src={clip.src}
@@ -335,10 +345,6 @@ const EditorPreviewComposition: React.FC<EditorPreviewCompositionProps> = ({
         return sortVisualClipsForRender(visible, project.tracks);
     }, [frame, project.clips, project.tracks]);
 
-    const trackIndexMap = useMemo(() => {
-        return getTrackIndexMap(project.tracks);
-    }, [project.tracks]);
-
     return (
         <AbsoluteFill
             style={{
@@ -350,7 +356,7 @@ const EditorPreviewComposition: React.FC<EditorPreviewCompositionProps> = ({
             {project.clips.length === 0 && <EmptyPreviewState />}
 
             {visibleSortedClips.map((clip) => {
-                const trackOrder = trackIndexMap.get(clip.trackId) ?? 0;
+                const trackOrder = getClipLayerIndex(clip);
 
                 switch (clip.type) {
                     case "text":
@@ -389,8 +395,6 @@ const EditorPreviewComposition: React.FC<EditorPreviewCompositionProps> = ({
                             <AudioClipLayer
                                 key={clip.id}
                                 clip={clip}
-                                frame={frame}
-                                trackOrder={trackOrder}
                             />
                         );
                     // END NEW LOGIC

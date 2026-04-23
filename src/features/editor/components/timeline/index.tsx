@@ -1,6 +1,15 @@
 "use client";
 
-import { useEffect, useRef, type PointerEvent } from "react";
+import { useEffect, useRef, useState, type PointerEvent } from "react";
+import {
+    DndContext,
+    PointerSensor,
+    useSensor,
+    useSensors,
+    type DragEndEvent,
+    type DragMoveEvent,
+    type DragStartEvent,
+} from "@dnd-kit/core";
 import Playhead from "./components/playhead";
 import TimelineRuler from "./components/timeline-ruler";
 import TimelineToolbar from "./components/timeline-toolbar";
@@ -20,10 +29,25 @@ import { computeTimelineZoom } from "../../lib/timeline-zoom-engine";
 import { getEditorPlaybackDurationInFrames } from "../../lib/playback-duration";
 
 const PLAYHEAD_PAGE_SCROLL_THRESHOLD = 2;
-const PLAYHEAD_SCRUB_SYNC_INTERVAL_MS = 66;
+const PLAYHEAD_SCRUB_STORE_SYNC_INTERVAL_MS = 33;
+
+type ClipDropPreview = {
+    clipId: string;
+    from: number;
+    left: number;
+    top: number;
+    width: number;
+    height: number;
+    trackId?: string;
+    createTrackPlacement?: "above" | "below";
+};
 
 type TimelineBoundaryScrollEvent = CustomEvent<{
     position: "start" | "end";
+}>;
+
+type PreviewSeekEvent = CustomEvent<{
+    frame: number;
 }>;
 
 const Timeline: React.FC = () => {
@@ -33,6 +57,9 @@ const Timeline: React.FC = () => {
     const scrubFrameRef = useRef<number | null>(null);
     const scrubSyncTimeoutRef = useRef<number | null>(null);
     const scrubLastSyncedAtRef = useRef(0);
+    const scrubPreviewAnimationFrameRef = useRef<number | null>(null);
+    const [clipDropPreview, setClipDropPreview] =
+        useState<ClipDropPreview | null>(null);
     const project = useEditorStore((state) => state.project);
     const runtime = useEditorStore((state) => state.runtime);
     const selectedClipIds = useEditorStore(
@@ -41,6 +68,7 @@ const Timeline: React.FC = () => {
     const setSelectedClipIds = useEditorStore(
         (state) => state.setSelectedClipIds,
     );
+    const moveClip = useEditorStore((state) => state.moveClip);
     const seekToFrame = useEditorStore((state) => state.seekToFrame);
     const pause = useEditorStore((state) => state.pause);
     const deleteSelectedClips = useEditorStore(
@@ -60,6 +88,13 @@ const Timeline: React.FC = () => {
     const playbackStatus = runtime.player.status;
     const zoomValue = runtime.timeline.zoom.zoomLevel;
     const laneResult = buildTrackLaneLayouts(tracks);
+    const sensors = useSensors(
+        useSensor(PointerSensor, {
+            activationConstraint: {
+                distance: 4,
+            },
+        }),
+    );
     const zoomComputed = computeTimelineZoom({
         durationInFrames,
         fps,
@@ -73,6 +108,179 @@ const Timeline: React.FC = () => {
         zoomComputed.pixelsPerFrame,
     );
 
+    const getClipDropPreview = (
+        clipId: string,
+        delta: { x: number; y: number },
+    ): ClipDropPreview | null => {
+        const clip = clips.find((item) => item.id === clipId);
+        const clipLayout = clipLayouts.find((layout) => {
+            return layout.clip.id === clipId;
+        });
+
+        if (!clip || !clipLayout || zoomComputed.pixelsPerFrame <= 0) {
+            return null;
+        }
+
+        const getNextVisibleFrom = (trackId: string, requestedFrom: number) => {
+            let nextFrom = requestedFrom;
+            let overlappingClip = clips.find((item) => {
+                if (item.id === clipId || item.trackId !== trackId) {
+                    return false;
+                }
+
+                return (
+                    nextFrom < item.from + item.durationInFrames &&
+                    nextFrom + clip.durationInFrames > item.from
+                );
+            });
+
+            while (overlappingClip) {
+                nextFrom =
+                    overlappingClip.from + overlappingClip.durationInFrames;
+                overlappingClip = clips.find((item) => {
+                    if (item.id === clipId || item.trackId !== trackId) {
+                        return false;
+                    }
+
+                    return (
+                        nextFrom < item.from + item.durationInFrames &&
+                        nextFrom + clip.durationInFrames > item.from
+                    );
+                });
+            }
+
+            return nextFrom;
+        };
+        const deltaFrames = Math.round(delta.x / zoomComputed.pixelsPerFrame);
+        const requestedFrom = Math.max(0, clip.from + deltaFrames);
+        const sourceLane = laneResult.layouts.find((lane) => {
+            return lane.trackId === clip.trackId;
+        });
+        const sourceLaneHeight = sourceLane?.laneHeight ?? clipLayout.height;
+        const sourceItemInsetY = sourceLane?.itemInsetY ?? 1.5;
+        const sourceItemHeight = sourceLane?.itemHeight ?? clipLayout.height;
+        const targetLaneCenterY = sourceLane
+            ? sourceLane.top + sourceLane.laneHeight / 2 + delta.y
+            : clipLayout.top + clipLayout.height / 2 + delta.y;
+
+        if (targetLaneCenterY < 0) {
+            return {
+                clipId,
+                from: requestedFrom,
+                left: frameToPx(requestedFrom, zoomComputed.pixelsPerFrame),
+                top: sourceItemInsetY,
+                width: clipLayout.width,
+                height: sourceItemHeight,
+                createTrackPlacement: "above",
+            };
+        }
+
+        if (targetLaneCenterY > laneResult.totalHeight) {
+            return {
+                clipId,
+                from: requestedFrom,
+                left: frameToPx(requestedFrom, zoomComputed.pixelsPerFrame),
+                top: laneResult.totalHeight + sourceItemInsetY,
+                width: clipLayout.width,
+                height: sourceItemHeight,
+                createTrackPlacement: "below",
+            };
+        }
+
+        const targetLane =
+            laneResult.layouts.find((lane) => {
+                return (
+                    targetLaneCenterY >= lane.top &&
+                    targetLaneCenterY <= lane.top + lane.laneHeight
+                );
+            }) ??
+            laneResult.layouts.reduce((nearestLane, lane) => {
+                const nearestDistance = Math.abs(
+                    nearestLane.top +
+                        nearestLane.laneHeight / 2 -
+                        targetLaneCenterY,
+                );
+                const laneDistance = Math.abs(
+                    lane.top + lane.laneHeight / 2 - targetLaneCenterY,
+                );
+
+                return laneDistance < nearestDistance ? lane : nearestLane;
+            }, laneResult.layouts[0]);
+
+        if (!targetLane) {
+            return {
+                clipId,
+                from: requestedFrom,
+                left: frameToPx(requestedFrom, zoomComputed.pixelsPerFrame),
+                top: sourceItemInsetY,
+                width: clipLayout.width,
+                height: sourceLaneHeight - sourceItemInsetY * 2,
+                createTrackPlacement: "above",
+            };
+        }
+
+        const from = getNextVisibleFrom(targetLane.trackId, requestedFrom);
+
+        // OLD logic: The drop hint showed the raw pointer frame even when the store would snap overlaps.
+        // NEW logic: The ghost walks forward past overlapped clips, matching the committed drop behavior.
+        return {
+            clipId,
+            from,
+            left: frameToPx(from, zoomComputed.pixelsPerFrame),
+            top: targetLane.top + targetLane.itemInsetY,
+            width: clipLayout.width,
+            height: targetLane.itemHeight,
+            trackId: targetLane.trackId,
+        };
+    };
+
+    const handleClipDragStart = (event: DragStartEvent) => {
+        const clipId = String(event.active.id);
+
+        setSelectedClipIds([clipId]);
+    };
+
+    const handleClipDragMove = (event: DragMoveEvent) => {
+        const clipId = String(event.active.id);
+
+        setClipDropPreview(getClipDropPreview(clipId, event.delta));
+    };
+
+    const handleClipDragEnd = (event: DragEndEvent) => {
+        const clipId = String(event.active.id);
+        const dropPreview = getClipDropPreview(clipId, event.delta);
+
+        setClipDropPreview(null);
+
+        if (!dropPreview) return;
+
+        const clip = clips.find((item) => item.id === clipId);
+        const nextTrackId = dropPreview.trackId ?? clip?.trackId;
+
+        if (!clip) return;
+
+        if (
+            dropPreview.from === clip.from &&
+            nextTrackId === clip.trackId &&
+            !dropPreview.createTrackPlacement
+        ) {
+            return;
+        }
+
+        // OLD logic: dnd-kit drag only moved clips inside existing lanes.
+        // NEW logic: Drag target can be an existing lane or a new top/bottom lane with a live ghost preview.
+        moveClip({
+            clipId,
+            from: dropPreview.from,
+            trackId: dropPreview.trackId,
+            createTrackPlacement: dropPreview.createTrackPlacement,
+        });
+    };
+
+    const handleClipDragCancel = () => {
+        setClipDropPreview(null);
+    };
+
     const getFrameFromClientX = (clientX: number) => {
         const content = timelineContentRef.current;
         if (!content || zoomComputed.pixelsPerFrame <= 0) return null;
@@ -84,6 +292,57 @@ const Timeline: React.FC = () => {
         );
 
         return Math.max(0, Math.min(frame, playbackDurationInFrames));
+    };
+
+    const syncPreviewToScrubFrame = () => {
+        const frame = scrubFrameRef.current;
+
+        scrubPreviewAnimationFrameRef.current = null;
+
+        if (frame === null) return;
+
+        const event: PreviewSeekEvent = new CustomEvent(
+            "editor:preview-seek-frame",
+            {
+                detail: { frame },
+            },
+        );
+
+        window.dispatchEvent(event);
+    };
+
+    const schedulePreviewScrubSync = () => {
+        if (scrubPreviewAnimationFrameRef.current !== null) return;
+
+        scrubPreviewAnimationFrameRef.current = window.requestAnimationFrame(
+            syncPreviewToScrubFrame,
+        );
+    };
+
+    const syncStoreToScrubFrame = (frame: number) => {
+        const now = window.performance.now();
+        const elapsed = now - scrubLastSyncedAtRef.current;
+
+        if (elapsed >= PLAYHEAD_SCRUB_STORE_SYNC_INTERVAL_MS) {
+            scrubLastSyncedAtRef.current = now;
+            seekToFrame(frame);
+            return;
+        }
+
+        if (scrubSyncTimeoutRef.current !== null) return;
+
+        scrubSyncTimeoutRef.current = window.setTimeout(() => {
+            const nextFrame = scrubFrameRef.current;
+
+            scrubSyncTimeoutRef.current = null;
+            scrubLastSyncedAtRef.current = window.performance.now();
+
+            if (nextFrame !== null) {
+                // OLD logic: Preview/time only updated after releasing the playhead.
+                // NEW logic: Sync store time at a capped rate while preview seeks on animation frames.
+                seekToFrame(nextFrame);
+            }
+        }, PLAYHEAD_SCRUB_STORE_SYNC_INTERVAL_MS - elapsed);
     };
 
     const scrubToClientX = (clientX: number) => {
@@ -103,29 +362,8 @@ const Timeline: React.FC = () => {
         playhead.style.transition = "none";
         playhead.style.transform = `translate3d(${left}px, 0, 0)`;
 
-        const now = window.performance.now();
-        const elapsed = now - scrubLastSyncedAtRef.current;
-
-        if (elapsed >= PLAYHEAD_SCRUB_SYNC_INTERVAL_MS) {
-            scrubLastSyncedAtRef.current = now;
-            seekToFrame(frame);
-            return;
-        }
-
-        if (scrubSyncTimeoutRef.current !== null) return;
-
-        scrubSyncTimeoutRef.current = window.setTimeout(() => {
-            const nextFrame = scrubFrameRef.current;
-
-            scrubSyncTimeoutRef.current = null;
-            scrubLastSyncedAtRef.current = window.performance.now();
-
-            if (nextFrame !== null) {
-                // OLD logic: Preview/time only updated after releasing the playhead.
-                // NEW logic: Sync preview/time at a throttled rate so dragging stays smooth.
-                seekToFrame(nextFrame);
-            }
-        }, PLAYHEAD_SCRUB_SYNC_INTERVAL_MS - elapsed);
+        schedulePreviewScrubSync();
+        syncStoreToScrubFrame(frame);
     };
 
     const handlePlayheadScrubStart = (event: PointerEvent<HTMLDivElement>) => {
@@ -163,6 +401,11 @@ const Timeline: React.FC = () => {
             scrubSyncTimeoutRef.current = null;
         }
 
+        if (scrubPreviewAnimationFrameRef.current !== null) {
+            window.cancelAnimationFrame(scrubPreviewAnimationFrameRef.current);
+            scrubPreviewAnimationFrameRef.current = null;
+        }
+
         if (playheadRef.current) {
             playheadRef.current.style.transition = "";
         }
@@ -175,6 +418,12 @@ const Timeline: React.FC = () => {
         return () => {
             if (scrubSyncTimeoutRef.current !== null) {
                 window.clearTimeout(scrubSyncTimeoutRef.current);
+            }
+
+            if (scrubPreviewAnimationFrameRef.current !== null) {
+                window.cancelAnimationFrame(
+                    scrubPreviewAnimationFrameRef.current,
+                );
             }
         };
     }, []);
@@ -348,25 +597,58 @@ const Timeline: React.FC = () => {
                                 />
 
                                 {/* ===== Track container ===== */}
-                                <TimelineBody
-                                    timelineWidth={zoomComputed.timelineWidth}
-                                    lanes={laneResult.layouts}
-                                    totalHeight={laneResult.totalHeight}>
-                                    {clipLayouts.map((clipLayout) => (
-                                        <TimelineItem
-                                            key={clipLayout.clip.id}
-                                            clipLayout={clipLayout}
-                                            // OLD logic: TimelineItem always received the default unselected state.
-                                            // NEW logic: Selection comes from the editor store so toolbar, timeline, and preview share state.
-                                            isSelected={selectedClipIds.includes(
-                                                clipLayout.clip.id,
-                                            )}
-                                            onSelect={(clipId) => {
-                                                setSelectedClipIds([clipId]);
-                                            }}
-                                        />
-                                    ))}
-                                </TimelineBody>
+                                <DndContext
+                                    sensors={sensors}
+                                    onDragStart={handleClipDragStart}
+                                    onDragMove={handleClipDragMove}
+                                    onDragEnd={handleClipDragEnd}
+                                    onDragCancel={handleClipDragCancel}>
+                                    <TimelineBody
+                                        timelineWidth={
+                                            zoomComputed.timelineWidth
+                                        }
+                                        lanes={laneResult.layouts}
+                                        totalHeight={
+                                            clipDropPreview?.createTrackPlacement ===
+                                            "below"
+                                                ? Math.max(
+                                                      laneResult.totalHeight,
+                                                      clipDropPreview.top +
+                                                          clipDropPreview.height +
+                                                          1.5,
+                                                  )
+                                                : laneResult.totalHeight
+                                        }>
+                                        {clipDropPreview && (
+                                            <div
+                                                className='pointer-events-none absolute rounded-sm border border-sky-500 bg-sky-500/20 shadow-[inset_0_0_0_1px_rgba(255,255,255,0.2)]'
+                                                style={{
+                                                    left: clipDropPreview.left,
+                                                    top: clipDropPreview.top,
+                                                    width: clipDropPreview.width,
+                                                    height: clipDropPreview.height,
+                                                    zIndex: 9999,
+                                                }}
+                                            />
+                                        )}
+                                        {clipLayouts.map((clipLayout) => (
+                                            <TimelineItem
+                                                key={clipLayout.clip.id}
+                                                clipLayout={clipLayout}
+                                                // OLD logic: TimelineItem always received the default unselected state.
+                                                // NEW logic: Selection comes from the editor store so toolbar, timeline, and preview share state.
+                                                isSelected={selectedClipIds.includes(
+                                                    clipLayout.clip.id,
+                                                )}
+                                                onSelect={(clipId) => {
+                                                    setSelectedClipIds([
+                                                        clipId,
+                                                    ]);
+                                                }}
+                                            />
+                                        ))}
+                                    </TimelineBody>
+                                </DndContext>
 
                                 {/* ===== Playhead ===== */}
                                 <Playhead
