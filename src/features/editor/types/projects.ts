@@ -1,4 +1,5 @@
 import {
+    AssetId,
     ClipId,
     Frame,
     Frames,
@@ -10,6 +11,8 @@ import {
 } from "./primitives";
 
 export type TrackMediaKind = "text" | "video" | "audio" | "image" | "shape";
+
+export type MediaAssetKind = "video" | "audio" | "image";
 
 export type AspectRatioPreset = "16:9" | "9:16" | "1:1" | "4:5" | "custom";
 
@@ -146,6 +149,18 @@ export type TimelineClip =
     | ImageClip
     | ShapeClip;
 
+export type MediaAsset = {
+    id: AssetId;
+    kind: MediaAssetKind;
+    src: MediaSrc;
+    name: string;
+    mimeType: string;
+    duration?: number;
+    durationInFrames?: Frames;
+    width?: number;
+    height?: number;
+};
+
 export type EditorProject = {
     id: ProjectId;
     name: string;
@@ -154,4 +169,5 @@ export type EditorProject = {
     trackGroups: TimelineTrackGroup[];
     tracks: TimelineTrack[];
     clips: TimelineClip[];
+    mediaAssets: MediaAsset[];
 };

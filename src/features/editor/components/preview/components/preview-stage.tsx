@@ -3,6 +3,7 @@
 import React, { useEffect } from "react";
 import { Player, type PlayerRef } from "@remotion/player";
 import { ProjectVideoConfig } from "../../../types";
+import { useEditorStore } from "../../../stores";
 import EditorPreviewComposition from "../../../compositions/editor-composition";
 
 type PreviewStageProps = {
@@ -26,6 +27,8 @@ const PreviewStage: React.FC<PreviewStageProps> = ({
     onPlay,
     onPause,
 }) => {
+    const project = useEditorStore((state) => state.project);
+
     useEffect(() => {
         const player = playerRef.current;
         if (!player) return;
@@ -63,7 +66,9 @@ const PreviewStage: React.FC<PreviewStageProps> = ({
             <Player
                 ref={playerRef}
                 component={EditorPreviewComposition}
-                inputProps={{}}
+                // OLD logic: inputProps={{}}
+                // NEW logic: Pass actual projected data from global store into Player
+                inputProps={{ project }}
                 durationInFrames={video.durationInFrames}
                 fps={video.fps}
                 compositionWidth={video.width}

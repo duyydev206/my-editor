@@ -1,4 +1,10 @@
-import { Frame, Frames, Pixels, PlaybackStatus } from "../types";
+import {
+    Frame,
+    Frames,
+    MediaAsset,
+    Pixels,
+    PlaybackStatus,
+} from "../types";
 import { EditorState } from "../types/editor";
 
 export type EditorStoreState = EditorState;
@@ -54,6 +60,13 @@ export type EditorStoreActions = {
     setSelectedTrackId: (trackId: string | null) => void;
     setSelectedGroupId: (groupId: string | null) => void;
     clearSelection: () => void;
+
+    // ===== Clip Creation =====
+    addTextClipAtPlayhead: (payload?: {
+        text?: string;
+        durationInFrames?: Frames;
+    }) => void;
+    addMediaAssetAsClip: (payload: { asset: MediaAsset }) => void;
 
     // ===== Text Editing =====
     startTextEditing: (payload: { clipId: string; draftText: string }) => void;

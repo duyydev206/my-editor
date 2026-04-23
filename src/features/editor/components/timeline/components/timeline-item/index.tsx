@@ -6,11 +6,13 @@ import TimelineItemShell from "./timeline-item-shell";
 type TimelineItemProps = {
     clipLayout: TimelineClipLayout;
     isSelected?: boolean;
+    onSelect?: (clipId: string) => void;
 };
 
 const TimelineItem: React.FC<TimelineItemProps> = ({
     clipLayout,
     isSelected = false,
+    onSelect,
 }: TimelineItemProps) => {
     const {
         clip,
@@ -31,6 +33,10 @@ const TimelineItem: React.FC<TimelineItemProps> = ({
             style={{ opacity: isTrackHidden || clip.isHidden ? 0.45 : 1 }}>
             <div data-state='closed' style={{ display: "contents" }}>
                 <div
+                    onClick={(event) => {
+                        event.stopPropagation();
+                        onSelect?.(clip.id);
+                    }}
                     style={{
                         width,
                         left,

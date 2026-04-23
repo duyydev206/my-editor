@@ -27,6 +27,41 @@ const EditorPlayer = () => {
         (state) => state.setPreviewContainerSize,
     );
 
+    const handlePause = () => {
+        const currentFrameInPlayer = playerRef.current?.getCurrentFrame();
+        const isEnded =
+            currentFrameInPlayer !== undefined &&
+            currentFrameInPlayer >= video.durationInFrames - 1;
+
+        if (isEnded) {
+            // OLD logic: The UI stayed on the last renderable frame, e.g. 04.96 for a 5s clip at 30fps.
+            // NEW logic: The UI playhead moves to the end boundary while Remotion keeps rendering the final frame.
+            setCurrentFrame(video.durationInFrames);
+            setPlaybackStatus("ended");
+            return;
+        }
+
+        setPlaybackStatus("paused");
+    };
+
+    const handleFrameUpdate = (frame: number) => {
+        const { runtime } = useEditorStore.getState();
+        const isLastRenderableFrame = frame >= video.durationInFrames - 1;
+        const isUiAtEndBoundary =
+            runtime.player.currentFrame >= video.durationInFrames;
+
+        if (
+            isLastRenderableFrame &&
+            (runtime.player.status === "ended" || isUiAtEndBoundary)
+        ) {
+            // OLD logic: Remotion frameupdate could pull the UI playhead back from duration to duration - 1.
+            // NEW logic: Once the UI is on the end boundary, keep it there.
+            return;
+        }
+
+        setCurrentFrame(frame);
+    };
+
     const viewport = useMemo<PreviewViewportState>(() => {
         return {
             containerWidth: size.width,
@@ -67,11 +102,17 @@ const EditorPlayer = () => {
         if (!instance) return;
 
         const currentFrameInPlayer = instance.getCurrentFrame();
+        const frameForPlayer = Math.min(
+            player.currentFrame,
+            Math.max(0, video.durationInFrames - 1),
+        );
 
-        if (currentFrameInPlayer !== player.currentFrame) {
-            instance.seekTo(player.currentFrame);
+        if (currentFrameInPlayer !== frameForPlayer) {
+            // OLD logic: UI frame and Remotion seek frame were always identical.
+            // NEW logic: UI can sit on the end boundary; Remotion still seeks to the last real frame.
+            instance.seekTo(frameForPlayer);
         }
-    }, [player.currentFrame]);
+    }, [player.currentFrame, video.durationInFrames]);
 
     return (
         <>
@@ -84,20 +125,11 @@ const EditorPlayer = () => {
                         video={video}
                         viewport={viewport}
                         isLoopEnabled={isLoopEnabled}
-                        onFrameUpdate={(frame) => {
-                            setCurrentFrame(frame);
-                        }}
+                        onFrameUpdate={handleFrameUpdate}
                         onPlay={() => {
                             setPlaybackStatus("playing");
                         }}
-                        onPause={() => {
-                            setPlaybackStatus(
-                                player.currentFrame >=
-                                    video.durationInFrames - 1
-                                    ? "ended"
-                                    : "paused",
-                            );
-                        }}
+                        onPause={handlePause}
                     />
                 </div>
             ) : (
@@ -108,20 +140,11 @@ const EditorPlayer = () => {
                             video={video}
                             viewport={viewport}
                             isLoopEnabled={isLoopEnabled}
-                            onFrameUpdate={(frame) => {
-                                setCurrentFrame(frame);
-                            }}
+                            onFrameUpdate={handleFrameUpdate}
                             onPlay={() => {
                                 setPlaybackStatus("playing");
                             }}
-                            onPause={() => {
-                                setPlaybackStatus(
-                                    player.currentFrame >=
-                                        video.durationInFrames - 1
-                                        ? "ended"
-                                        : "paused",
-                                );
-                            }}
+                            onPause={handlePause}
                         />
                     </div>
                 </div>

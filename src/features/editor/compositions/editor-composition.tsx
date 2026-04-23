@@ -3,12 +3,21 @@
 import React, { useMemo } from "react";
 import {
     AbsoluteFill,
-    interpolate,
-    spring,
     useCurrentFrame,
     useVideoConfig,
+    Video,
+    Audio,
+    Img,
 } from "remotion";
-import { EditorProject, TextClip, TimelineClip, TimelineTrack } from "../types";
+import {
+    EditorProject,
+    TextClip,
+    VideoClip,
+    AudioClip,
+    ImageClip,
+    TimelineClip,
+    TimelineTrack,
+} from "../types";
 
 type EditorPreviewCompositionProps = {
     project?: EditorProject;
@@ -39,6 +48,7 @@ const fallbackProject: EditorProject = {
             isHidden: false,
         },
     ],
+    mediaAssets: [],
     clips: [
         {
             id: "clip-text-1",
@@ -108,52 +118,16 @@ const getBasicClipTransitionStyle = (
     localFrame: number,
     fps: number,
 ) => {
-    const enterDuration = Math.min(12, clip.durationInFrames);
-    const exitDuration = Math.min(12, clip.durationInFrames);
+    void clip;
+    void localFrame;
+    void fps;
 
-    const enterOpacity = interpolate(localFrame, [0, enterDuration], [0, 1], {
-        extrapolateLeft: "clamp",
-        extrapolateRight: "clamp",
-    });
-
-    const enterTranslateY = interpolate(
-        localFrame,
-        [0, enterDuration],
-        [24, 0],
-        {
-            extrapolateLeft: "clamp",
-            extrapolateRight: "clamp",
-        },
-    );
-
-    const exitStart = Math.max(clip.durationInFrames - exitDuration, 0);
-
-    const exitOpacity = interpolate(
-        localFrame,
-        [exitStart, clip.durationInFrames],
-        [1, 0],
-        {
-            extrapolateLeft: "clamp",
-            extrapolateRight: "clamp",
-        },
-    );
-
-    const popInScale = spring({
-        frame: localFrame,
-        fps,
-        config: {
-            damping: 200,
-            stiffness: 180,
-            mass: 0.7,
-        },
-    });
-
-    const scale = interpolate(popInScale, [0, 1], [0.92, 1]);
-
+    // OLD logic: Every clip had a built-in fade/translate/scale transition.
+    // NEW logic: Clips render statically by default; custom effects will be modeled explicitly later.
     return {
-        opacity: Math.min(enterOpacity, exitOpacity),
-        translateY: enterTranslateY,
-        scale,
+        opacity: 1,
+        translateY: 0,
+        scale: 1,
     };
 };
 
@@ -211,6 +185,122 @@ const TextClipLayer: React.FC<{
     );
 };
 
+const VideoClipLayer: React.FC<{
+    clip: VideoClip;
+    frame: number;
+    trackOrder: number;
+}> = ({ clip, frame, trackOrder }) => {
+    const { fps } = useVideoConfig();
+    const localFrame = getClipLocalFrame(clip, frame);
+    const transition = getBasicClipTransitionStyle(clip, localFrame, fps);
+
+    const transform = clip.transform ?? {
+        x: 0,
+        y: 0,
+        scaleX: 1,
+        scaleY: 1,
+        rotation: 0,
+        opacity: 1,
+        anchorX: 0.5,
+        anchorY: 0.5,
+    };
+
+    return (
+        <div
+            style={{
+                position: "absolute",
+                left: transform.x,
+                top: transform.y,
+                transform: `
+          translate(-${(transform.anchorX ?? 0.5) * 100}%, -${(transform.anchorY ?? 0.5) * 100}%)
+          translateY(${transition.translateY}px)
+          rotate(${transform.rotation}deg)
+          scale(${transform.scaleX * transition.scale}, ${transform.scaleY * transition.scale})
+        `,
+                opacity: (transform.opacity ?? 1) * transition.opacity,
+                zIndex: trackOrder,
+                width: transform.width,
+                height: transform.height,
+            }}>
+            <Video
+                src={clip.src}
+                startFrom={clip.sourceStartFrame}
+                endAt={clip.sourceStartFrame + clip.durationInFrames}
+                volume={clip.isMuted ? 0 : clip.volume}
+                playbackRate={clip.playbackRate ?? 1}
+                // OLD logic: Video used "contain", which could leave black space around uploaded media.
+                // NEW logic: Uploaded video fills its clip bounds by default.
+                style={{ width: "100%", height: "100%", objectFit: "cover" }}
+            />
+        </div>
+    );
+};
+
+const ImageClipLayer: React.FC<{
+    clip: ImageClip;
+    frame: number;
+    trackOrder: number;
+}> = ({ clip, frame, trackOrder }) => {
+    const { fps } = useVideoConfig();
+    const localFrame = getClipLocalFrame(clip, frame);
+    const transition = getBasicClipTransitionStyle(clip, localFrame, fps);
+
+    const transform = clip.transform ?? {
+        x: 0,
+        y: 0,
+        scaleX: 1,
+        scaleY: 1,
+        rotation: 0,
+        opacity: 1,
+        anchorX: 0.5,
+        anchorY: 0.5,
+    };
+
+    return (
+        <div
+            style={{
+                position: "absolute",
+                left: transform.x,
+                top: transform.y,
+                transform: `
+          translate(-${(transform.anchorX ?? 0.5) * 100}%, -${(transform.anchorY ?? 0.5) * 100}%)
+          translateY(${transition.translateY}px)
+          rotate(${transform.rotation}deg)
+          scale(${transform.scaleX * transition.scale}, ${transform.scaleY * transition.scale})
+        `,
+                opacity: (transform.opacity ?? 1) * transition.opacity,
+                zIndex: trackOrder,
+                width: transform.width,
+                height: transform.height,
+            }}>
+            <Img
+                src={clip.src}
+                style={{
+                    width: "100%",
+                    height: "100%",
+                    objectFit: clip.objectFit ?? "contain",
+                }}
+            />
+        </div>
+    );
+};
+
+const AudioClipLayer: React.FC<{
+    clip: AudioClip;
+    frame: number;
+    trackOrder: number;
+}> = ({ clip, frame, trackOrder }) => {
+    return (
+        <Audio
+            src={clip.src}
+            startFrom={clip.sourceStartFrame}
+            endAt={clip.sourceStartFrame + clip.durationInFrames}
+            volume={clip.isMuted ? 0 : clip.volume}
+            playbackRate={clip.playbackRate ?? 1}
+        />
+    );
+};
+
 const EditorPreviewComposition: React.FC<EditorPreviewCompositionProps> = ({
     project = fallbackProject,
 }) => {
@@ -251,7 +341,40 @@ const EditorPreviewComposition: React.FC<EditorPreviewCompositionProps> = ({
                             />
                         );
 
+                    // NEW LOGIC SUPPORTING VIDEO, AUDIO AND IMAGE
+                    case "video":
+                        return (
+                            <VideoClipLayer
+                                key={clip.id}
+                                clip={clip}
+                                frame={frame}
+                                trackOrder={trackOrder}
+                            />
+                        );
+
+                    case "image":
+                        return (
+                            <ImageClipLayer
+                                key={clip.id}
+                                clip={clip}
+                                frame={frame}
+                                trackOrder={trackOrder}
+                            />
+                        );
+
+                    case "audio":
+                        return (
+                            <AudioClipLayer
+                                key={clip.id}
+                                clip={clip}
+                                frame={frame}
+                                trackOrder={trackOrder}
+                            />
+                        );
+                    // END NEW LOGIC
+
                     default:
+                        // OLD LOGIC: return null; (Duy trì không thay đổi để bắt fallbacks)
                         return null;
                 }
             })}

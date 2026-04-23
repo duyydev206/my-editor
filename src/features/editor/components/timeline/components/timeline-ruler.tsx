@@ -9,6 +9,7 @@ type TimelineRulerProps = {
     visibleDurationInFrames: Frames;
     tickFrames: Frames;
     timelineWidth: number;
+    onSeekFrame?: (frame: number) => void;
 };
 
 const formatTimecode = (frame: number, fps: number) => {
@@ -29,6 +30,7 @@ const TimelineRuler: React.FC<TimelineRulerProps> = ({
     visibleDurationInFrames,
     tickFrames,
     timelineWidth,
+    onSeekFrame,
 }: TimelineRulerProps) => {
     const usableWidth = Math.max(0, timelineWidth - TIMELINE_GUTTER_X * 2);
     const pixelsPerFrame =
@@ -56,7 +58,25 @@ const TimelineRuler: React.FC<TimelineRulerProps> = ({
 
             <div
                 id='tick-headers'
-                className='relative overflow-hidden select-none h-7'
+                className='relative overflow-hidden select-none h-7 cursor-pointer'
+                onPointerDown={(event) => {
+                    if (pixelsPerFrame <= 0) return;
+
+                    const rect = event.currentTarget.getBoundingClientRect();
+                    const x = event.clientX - rect.left;
+                    const frame = Math.round(
+                        (x - TIMELINE_GUTTER_X) / pixelsPerFrame,
+                    );
+
+                    // OLD logic: Ruler was display-only.
+                    // NEW logic: Clicking the ruler seeks the shared player frame.
+                    onSeekFrame?.(
+                        Math.max(
+                            0,
+                            Math.min(frame, visibleDurationInFrames - 1),
+                        ),
+                    );
+                }}
                 style={{
                     width: timelineWidth,
                 }}>

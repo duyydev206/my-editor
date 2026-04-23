@@ -8,12 +8,14 @@ type PlayheadProps = {
     currentFrame: Frame;
     durationInFrames: Frames;
     pixelsPerFrame: number;
+    isPlaying?: boolean;
 };
 
 const Playhead: React.FC<PlayheadProps> = ({
     currentFrame,
     durationInFrames,
     pixelsPerFrame,
+    isPlaying = false,
 }: PlayheadProps) => {
     const clampedFrame = Math.min(Math.max(currentFrame, 0), durationInFrames);
     const left = frameToPx(clampedFrame, pixelsPerFrame, TIMELINE_GUTTER_X);
@@ -22,7 +24,17 @@ const Playhead: React.FC<PlayheadProps> = ({
         <div
             className='pointer-events-none absolute top-0 flex h-full flex-col items-center -ml-2.5'
             id='playhead'
-            style={{ left }}>
+            style={{
+                left: 0,
+                transform: `translate3d(${left}px, 0, 0)`,
+                // OLD logic: The transformed playhead had no explicit stacking layer and could render behind the sticky ruler.
+                // NEW logic: Keep the original UI, but raise the playhead layer so the marker head stays visible.
+                zIndex: 40,
+                // OLD logic: Playhead jumped frame-by-frame with no visual interpolation.
+                // NEW logic: Use composited transform updates with a short linear transition for smoother playback.
+                transition: isPlaying ? "transform 40ms linear" : undefined,
+                willChange: isPlaying ? "transform" : undefined,
+            }}>
             <div className='sticky z-1 top-0'>
                 <svg
                     viewBox='0 0 54 55'

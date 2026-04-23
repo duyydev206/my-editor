@@ -65,7 +65,9 @@ const TimelineToolbar: React.FC = () => {
     const isLoopEnabled = useLoopEnabled();
     const zoomValue = useTimelineZoomLevel();
     const currentTime = formatTime(currentFrame, video.fps);
-    const durationTime = formatTime(video.durationInFrames - 1, video.fps);
+    // OLD logic: Duration displayed the last renderable frame, so 5s showed as 04.96 at 30fps.
+    // NEW logic: Duration displays the actual end boundary.
+    const durationTime = formatTime(video.durationInFrames, video.fps);
 
     const togglePlay = useTogglePlay();
     const seekToFrame = useSeekToFrame();
@@ -156,7 +158,7 @@ const TimelineToolbar: React.FC = () => {
                     type='text'
                     size='middle'
                     icon={<IoPlaySkipForward className='text-2xl' />}
-                    onClick={() => seekToFrame(video.durationInFrames - 1)}
+                    onClick={() => seekToFrame(video.durationInFrames)}
                 />
 
                 <span className='text-xs text-gray-500 min-w-20 text-right'>
