@@ -14,12 +14,12 @@ import { dispatchPreviewSeekFrame } from "@/src/features/editor/lib/preview-seek
 
 const PLAYHEAD_PAGE_SCROLL_THRESHOLD = 2;
 const PLAYHEAD_SCRUB_STORE_SYNC_INTERVAL_MS = 33;
+const PLAYHEAD_DRIFT_RESYNC_THRESHOLD_FRAMES = 2;
 
 type TimelinePlayheadViewportLayerProps = {
     scrollViewportRef: React.RefObject<HTMLDivElement | null>;
     timelineContentRef: React.RefObject<HTMLDivElement | null>;
     pixelsPerFrame: number;
-    visibleDurationInFrames: number;
     playbackDurationInFrames: number;
 };
 
@@ -29,7 +29,6 @@ const TimelinePlayheadViewportLayer: React.FC<
     scrollViewportRef,
     timelineContentRef,
     pixelsPerFrame,
-    visibleDurationInFrames,
     playbackDurationInFrames,
 }) => {
     const playheadRef = useRef<HTMLDivElement>(null);
@@ -38,10 +37,17 @@ const TimelinePlayheadViewportLayer: React.FC<
     const scrubSyncTimeoutRef = useRef<number | null>(null);
     const scrubLastSyncedAtRef = useRef(0);
     const scrubPreviewAnimationFrameRef = useRef<number | null>(null);
+    const playbackAnimationFrameRef = useRef<number | null>(null);
+    const visualFrameRef = useRef(0);
+    const playbackAnchorFrameRef = useRef(0);
+    const playbackAnchorTimeRef = useRef(0);
     const currentFrame = useEditorStore((state) => state.runtime.player.currentFrame);
     const playbackStatus = useEditorStore((state) => state.runtime.player.status);
+    const playbackRate = useEditorStore((state) => state.runtime.player.playbackRate);
+    const fps = useEditorStore((state) => state.project.video.fps);
     const seekToFrame = useEditorStore((state) => state.seekToFrame);
     const pause = useEditorStore((state) => state.pause);
+    const currentFrameRef = useRef(currentFrame);
 
     const applyPlayheadOffset = useCallback(
         (frame: number) => {
@@ -55,6 +61,83 @@ const TimelinePlayheadViewportLayer: React.FC<
             playhead.style.transform = `translate3d(${nextLeft}px, 0, 0)`;
         },
         [pixelsPerFrame],
+    );
+
+    const getPredictedPlaybackFrame = useCallback(
+        (now: number) => {
+            const elapsedMs = Math.max(0, now - playbackAnchorTimeRef.current);
+            const elapsedFrames = (elapsedMs / 1000) * fps * playbackRate;
+
+            return Math.max(
+                0,
+                Math.min(
+                    playbackDurationInFrames,
+                    playbackAnchorFrameRef.current + elapsedFrames,
+                ),
+            );
+        },
+        [fps, playbackDurationInFrames, playbackRate],
+    );
+
+    const syncViewportToVisualFrame = useCallback(
+        (frame: number) => {
+            const viewport = scrollViewportRef.current;
+            if (!viewport) return;
+
+            const playheadX = frameToPx(frame, pixelsPerFrame);
+            const playheadViewportX = playheadX - viewport.scrollLeft;
+
+            if (
+                playheadViewportX <
+                viewport.clientWidth - PLAYHEAD_PAGE_SCROLL_THRESHOLD
+            ) {
+                return;
+            }
+
+            const targetScrollLeft = Math.max(
+                0,
+                Math.min(
+                    playheadX - TIMELINE_GUTTER_X,
+                    viewport.scrollWidth - viewport.clientWidth,
+                ),
+            );
+
+            if (targetScrollLeft !== viewport.scrollLeft) {
+                viewport.scrollTo({
+                    left: targetScrollLeft,
+                    behavior: "auto",
+                });
+            }
+        },
+        [pixelsPerFrame, scrollViewportRef],
+    );
+
+    const stopPlaybackAnimation = useCallback(() => {
+        if (playbackAnimationFrameRef.current !== null) {
+            window.cancelAnimationFrame(playbackAnimationFrameRef.current);
+            playbackAnimationFrameRef.current = null;
+        }
+    }, []);
+
+    const tickPlaybackAnimation = useCallback(
+        function animatePlayback(now: number) {
+            const frame = getPredictedPlaybackFrame(now);
+
+            visualFrameRef.current = frame;
+            applyPlayheadOffset(frame);
+            syncViewportToVisualFrame(frame);
+
+            if (playbackStatus === "playing" && scrubFrameRef.current === null) {
+                playbackAnimationFrameRef.current =
+                    window.requestAnimationFrame(animatePlayback);
+            }
+        },
+        [
+            applyPlayheadOffset,
+            getPredictedPlaybackFrame,
+            playbackStatus,
+            syncViewportToVisualFrame,
+        ],
     );
 
     const syncPreviewToScrubFrame = useCallback(() => {
@@ -201,7 +284,11 @@ const TimelinePlayheadViewportLayer: React.FC<
                 return;
             }
 
-            applyPlayheadOffset(currentFrame);
+            applyPlayheadOffset(
+                playbackStatus === "playing"
+                    ? visualFrameRef.current
+                    : currentFrameRef.current,
+            );
         };
 
         syncScrollPosition();
@@ -212,48 +299,7 @@ const TimelinePlayheadViewportLayer: React.FC<
         return () => {
             viewport.removeEventListener("scroll", syncScrollPosition);
         };
-    }, [applyPlayheadOffset, currentFrame, scrollViewportRef]);
-
-    useEffect(() => {
-        if (scrubFrameRef.current !== null) return;
-
-        applyPlayheadOffset(currentFrame);
-    }, [applyPlayheadOffset, currentFrame]);
-
-    useLayoutEffect(() => {
-        if (scrubFrameRef.current !== null) return;
-
-        applyPlayheadOffset(currentFrame);
-    }, [applyPlayheadOffset, currentFrame]);
-
-    useEffect(() => {
-        const viewport = scrollViewportRef.current;
-        if (!viewport) return;
-        if (playbackStatus !== "playing") return;
-
-        const playheadX = frameToPx(currentFrame, pixelsPerFrame);
-        const playheadViewportX = playheadX - viewport.scrollLeft;
-
-        if (
-            playheadViewportX <
-            viewport.clientWidth - PLAYHEAD_PAGE_SCROLL_THRESHOLD
-        ) {
-            return;
-        }
-
-        const targetScrollLeft = Math.max(
-            0,
-            Math.min(
-                playheadX - TIMELINE_GUTTER_X,
-                viewport.scrollWidth - viewport.clientWidth,
-            ),
-        );
-
-        viewport.scrollTo({
-            left: targetScrollLeft,
-            behavior: "auto",
-        });
-    }, [currentFrame, pixelsPerFrame, playbackStatus, scrollViewportRef]);
+    }, [applyPlayheadOffset, playbackStatus, scrollViewportRef]);
 
     useEffect(() => {
         const viewport = scrollViewportRef.current;
@@ -275,7 +321,62 @@ const TimelinePlayheadViewportLayer: React.FC<
     }, [currentFrame, playbackDurationInFrames, playbackStatus, scrollViewportRef]);
 
     useEffect(() => {
+        currentFrameRef.current = currentFrame;
+
+        if (playbackStatus !== "playing") return;
+        if (scrubFrameRef.current !== null) return;
+
+        const predictedFrame = getPredictedPlaybackFrame(window.performance.now());
+        if (
+            Math.abs(predictedFrame - currentFrame) <
+            PLAYHEAD_DRIFT_RESYNC_THRESHOLD_FRAMES
+        ) {
+            return;
+        }
+
+        playbackAnchorFrameRef.current = currentFrame;
+        playbackAnchorTimeRef.current = window.performance.now();
+        visualFrameRef.current = currentFrame;
+    }, [currentFrame, getPredictedPlaybackFrame, playbackStatus]);
+
+    useLayoutEffect(() => {
+        currentFrameRef.current = currentFrame;
+
+        if (scrubFrameRef.current !== null) return;
+
+        if (playbackStatus === "playing") return;
+
+        visualFrameRef.current = currentFrame;
+        applyPlayheadOffset(currentFrame);
+    }, [applyPlayheadOffset, currentFrame, playbackStatus]);
+
+    useEffect(() => {
+        if (scrubFrameRef.current !== null) return;
+
+        if (playbackStatus === "playing") {
+            playbackAnchorFrameRef.current = currentFrameRef.current;
+            playbackAnchorTimeRef.current = window.performance.now();
+            visualFrameRef.current = currentFrameRef.current;
+            stopPlaybackAnimation();
+            playbackAnimationFrameRef.current =
+                window.requestAnimationFrame(tickPlaybackAnimation);
+            return;
+        }
+
+        stopPlaybackAnimation();
+        visualFrameRef.current = currentFrameRef.current;
+        applyPlayheadOffset(currentFrameRef.current);
+    }, [
+        applyPlayheadOffset,
+        playbackStatus,
+        stopPlaybackAnimation,
+        tickPlaybackAnimation,
+    ]);
+
+    useEffect(() => {
         return () => {
+            stopPlaybackAnimation();
+
             if (scrubSyncTimeoutRef.current !== null) {
                 window.clearTimeout(scrubSyncTimeoutRef.current);
             }
@@ -284,17 +385,12 @@ const TimelinePlayheadViewportLayer: React.FC<
                 window.cancelAnimationFrame(scrubPreviewAnimationFrameRef.current);
             }
         };
-    }, []);
+    }, [stopPlaybackAnimation]);
 
     return (
         <div className='pointer-events-none absolute inset-y-0 left-0 right-0 z-20 overflow-hidden'>
             <Playhead
                 ref={playheadRef}
-                currentFrame={currentFrame}
-                durationInFrames={visibleDurationInFrames}
-                pixelsPerFrame={pixelsPerFrame}
-                leftOffset={frameToPx(currentFrame, pixelsPerFrame)}
-                isPlaying={playbackStatus === "playing"}
                 onScrubStart={handlePlayheadScrubStart}
                 onScrubMove={handlePlayheadScrubMove}
                 onScrubEnd={handlePlayheadScrubEnd}

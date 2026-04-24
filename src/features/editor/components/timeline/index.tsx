@@ -625,9 +625,6 @@ const Timeline: React.FC = () => {
                                     scrollViewportRef={scrollViewportRef}
                                     timelineContentRef={timelineContentRef}
                                     pixelsPerFrame={zoomComputed.pixelsPerFrame}
-                                    visibleDurationInFrames={
-                                        zoomComputed.visibleDurationInFrames
-                                    }
                                     playbackDurationInFrames={
                                         playbackDurationInFrames
                                     }

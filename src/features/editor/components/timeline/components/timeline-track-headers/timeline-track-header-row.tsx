@@ -17,18 +17,16 @@ const TimelineTrackHeaderRow: React.FC<TimelineTrackHeaderRowProps> = ({
 }: TimelineTrackHeaderRowProps) => {
     const isHidden = track.isHidden;
     const isMuted = track.isMuted;
-    const toggleTrackHidden = useEditorStore((state) => state.toggleTrackHidden);
+    const toggleTrackHidden = useEditorStore(
+        (state) => state.toggleTrackHidden,
+    );
     const toggleTrackMuted = useEditorStore((state) => state.toggleTrackMuted);
 
     return (
         <div
             className='flex w-full select-none border-black/20'
-            style={{ borderBottomWidth: 1 }}>
-            <div
-                className='group flex w-full shrink-0 items-center gap-2 truncate pl-4 text-xs bg-white'
-                style={{
-                    height: laneHeight - 1,
-                }}>
+            style={{ borderBottomWidth: 1, height: laneHeight }}>
+            <div className='group flex w-full shrink-0 items-center gap-2 truncate pl-4 text-xs bg-white'>
                 {/* Track index */}
                 <div className='w-4 text-right text-neutral-400'>
                     {displayIndex}
