@@ -17,19 +17,22 @@ const Editor = () => {
 
             <div className='flex-1 min-h-0'>
                 <div className='w-full h-full min-h-0 min-w-0 grid grid-cols-6 gap-5'>
-                    {/* <div className="col-span-2 border"></div> */}
                     <div
                         className='col-span-6 min-h-0 min-w-0 grid grid-cols-4'
                         style={{
-                            gridTemplateRows: `minmax(0, 1fr) ${timelinePanelHeight}px`,
+                            gridTemplateRows: timelinePanelHeight
+                                ? `minmax(0, 1fr) minmax(0, 1fr) ${timelinePanelHeight}px`
+                                : undefined,
                         }}>
-                        <div className='min-h-0 min-w-0 col-span-3 overflow-hidden border'>
+                        <div className='row-span-2 min-h-0 min-w-0 col-span-3 overflow-hidden border'>
                             <EditorPlayer />
                         </div>
-                        <div className='min-h-0 min-w-0 col-span-1 border'>
+
+                        <div className='row-span-2 min-h-0 min-w-0 col-span-1 border'>
                             <Inspector />
                         </div>
-                        <div className='min-h-0 min-w-0 col-span-full'>
+
+                        <div className='row-span-1 min-h-0 min-w-0 col-span-full overflow-hidden'>
                             <Timeline />
                         </div>
                     </div>

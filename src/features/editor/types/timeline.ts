@@ -45,5 +45,5 @@ export type TimelineUIState = {
     zoom: TimelineZoomState;
     viewport: TimelineViewportState;
     toolbar: TimelineToolbarState;
-    panelHeight: Pixels;
+    panelHeight: Pixels | null;
 };

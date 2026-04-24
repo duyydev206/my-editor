@@ -11,10 +11,7 @@ import {
     usePreviewFullscreen,
 } from "../../stores";
 import { getEditorPlaybackDurationInFrames } from "../../lib/playback-duration";
-
-type PreviewSeekEvent = CustomEvent<{
-    frame: number;
-}>;
+import { PreviewSeekEvent } from "../../lib/preview-seek";
 
 const EditorPlayer = () => {
     const playerRef = useRef<PlayerRef>(null);

@@ -157,6 +157,7 @@ const createTrackForMovedClip = (
     project: EditorProject,
     kind: TrackMediaKind,
     placement: "above" | "below",
+    relativeTrackId?: string,
 ): {
     trackId: string;
     tracks: TimelineTrack[];
@@ -165,29 +166,48 @@ const createTrackForMovedClip = (
     const existingGroup = getCompatibleGroup(project.trackGroups, kind);
     const groupId = existingGroup?.id ?? getNextId(`group-${kind}`);
     const trackId = getNextId(`track-${kind}`);
-    const insertAtTop = placement === "above";
-    const nextIndex = insertAtTop
+    const sortedTracks = [...project.tracks].sort((a, b) => a.index - b.index);
+    const relativeTrack = relativeTrackId
+        ? sortedTracks.find((track) => track.id === relativeTrackId) ?? null
+        : null;
+    const insertAtTop = placement === "above" && !relativeTrack;
+    const insertAtBottom = placement === "below" && !relativeTrack;
+    const relativeTrackIndex = relativeTrack?.index ?? -1;
+    const insertionIndex = insertAtTop
         ? 0
-        : project.tracks.reduce((maxIndex, track) => {
-              return Math.max(maxIndex, track.index);
-          }, -1) + 1;
+        : insertAtBottom
+          ? project.tracks.reduce((maxIndex, track) => {
+                return Math.max(maxIndex, track.index);
+            }, -1) + 1
+          : placement === "above"
+            ? relativeTrackIndex
+            : relativeTrackIndex + 1;
     const nextTrack: TimelineTrack = {
         id: trackId,
         groupId,
         label: getTrackLabel(kind),
         kind,
-        index: nextIndex,
+        index: insertionIndex,
         height: DEFAULT_TRACK_HEIGHT_BY_KIND[kind],
         isLocked: false,
         isMuted: false,
         isHidden: false,
     };
-    const shiftedTracks = insertAtTop
-        ? project.tracks.map((track) => ({
-              ...track,
-              index: track.index + 1,
-          }))
-        : project.tracks;
+    const shiftedTracks =
+        insertAtTop || insertAtBottom
+            ? insertAtTop
+                ? project.tracks.map((track) => ({
+                      ...track,
+                      index: track.index + 1,
+                  }))
+                : project.tracks
+            : project.tracks.map((track) => ({
+                  ...track,
+                  index:
+                      track.index >= insertionIndex
+                          ? track.index + 1
+                          : track.index,
+              }));
     const nextTrackGroups = existingGroup
         ? project.trackGroups.map((group) => {
               if (group.id !== existingGroup.id) return group;
@@ -196,7 +216,27 @@ const createTrackForMovedClip = (
                   ...group,
                   trackIds: insertAtTop
                       ? [trackId, ...group.trackIds]
-                      : [...group.trackIds, trackId],
+                      : insertAtBottom
+                        ? [...group.trackIds, trackId]
+                        : (() => {
+                              const nextTrackIds = [...group.trackIds];
+                              const relativeTrackGroupIndex =
+                                  relativeTrackId !== undefined
+                                      ? nextTrackIds.indexOf(relativeTrackId)
+                                      : -1;
+
+                              if (relativeTrackGroupIndex < 0) {
+                                  nextTrackIds.push(trackId);
+                                  return nextTrackIds;
+                              }
+
+                              const insertIndex =
+                                  placement === "above"
+                                      ? relativeTrackGroupIndex
+                                      : relativeTrackGroupIndex + 1;
+                              nextTrackIds.splice(insertIndex, 0, trackId);
+                              return nextTrackIds;
+                          })(),
               };
           })
         : [
@@ -216,10 +256,8 @@ const createTrackForMovedClip = (
     return {
         trackId,
         // OLD logic: Moving a clip could only target an already existing lane.
-        // NEW logic: Dragging beyond the lane stack creates a new top/bottom lane for that clip.
-        tracks: insertAtTop
-            ? [nextTrack, ...shiftedTracks]
-            : [...shiftedTracks, nextTrack],
+        // NEW logic: Dragging can also create a lane above/below a specific existing lane, not only at the stack edges.
+        tracks: [...shiftedTracks, nextTrack].sort((a, b) => a.index - b.index),
         trackGroups: nextTrackGroups,
     };
 };
@@ -1108,7 +1146,7 @@ export const useEditorStore = create<EditorStore>((set, get) => ({
         });
     },
 
-    moveClip: ({ clipId, from, trackId, createTrackPlacement }) => {
+    moveClip: ({ clipId, from, trackId, createTrackPlacement, relativeTrackId }) => {
         set((state) => {
             const clip = state.project.clips.find((item) => item.id === clipId);
 
@@ -1129,6 +1167,7 @@ export const useEditorStore = create<EditorStore>((set, get) => ({
                       state.project,
                       clip.type,
                       createTrackPlacement,
+                      relativeTrackId,
                   )
                 : null;
             const projectTracks =

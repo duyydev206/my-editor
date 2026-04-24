@@ -10,13 +10,10 @@ import {
 import Playhead from "./playhead";
 import { useEditorStore } from "@/src/features/editor/stores";
 import { frameToPx, TIMELINE_GUTTER_X } from "@/src/features/editor/lib/timeline-math";
+import { dispatchPreviewSeekFrame } from "@/src/features/editor/lib/preview-seek";
 
 const PLAYHEAD_PAGE_SCROLL_THRESHOLD = 2;
 const PLAYHEAD_SCRUB_STORE_SYNC_INTERVAL_MS = 33;
-
-type PreviewSeekEvent = CustomEvent<{
-    frame: number;
-}>;
 
 type TimelinePlayheadViewportLayerProps = {
     scrollViewportRef: React.RefObject<HTMLDivElement | null>;
@@ -67,14 +64,7 @@ const TimelinePlayheadViewportLayer: React.FC<
 
         if (frame === null) return;
 
-        const event: PreviewSeekEvent = new CustomEvent(
-            "editor:preview-seek-frame",
-            {
-                detail: { frame },
-            },
-        );
-
-        window.dispatchEvent(event);
+        dispatchPreviewSeekFrame(frame);
     }, []);
 
     const schedulePreviewScrubSync = useCallback(() => {

@@ -33,6 +33,8 @@ import { getEditorPlaybackDurationInFrames } from "../../lib/playback-duration";
 
 const TIMELINE_MIN_PANEL_HEIGHT = 220;
 const PREVIEW_MIN_PANEL_HEIGHT = 140;
+const LANE_INSERT_PREVIEW_HEIGHT = 3;
+const LANE_INSERT_SNAP_THRESHOLD = 8;
 
 type ClipDropPreview = {
     clipId: string;
@@ -43,6 +45,8 @@ type ClipDropPreview = {
     height: number;
     trackId?: string;
     createTrackPlacement?: "above" | "below";
+    relativeTrackId?: string;
+    previewKind?: "clip" | "lane-insert";
 };
 
 type TimelineBoundaryScrollEvent = CustomEvent<{
@@ -77,15 +81,11 @@ const Timeline: React.FC = () => {
     const setTimelinePanelHeight = useEditorStore(
         (state) => state.setTimelinePanelHeight,
     );
-
     const tracks = project.tracks;
     const clips = project.clips;
     const fps = project.video.fps;
     const durationInFrames = project.video.durationInFrames;
     const playbackDurationInFrames = getEditorPlaybackDurationInFrames(project);
-    const timelinePanelHeight = useEditorStore(
-        (state) => state.runtime.timeline.panelHeight,
-    );
     const zoomValue = useEditorStore(
         (state) => state.runtime.timeline.zoom.zoomLevel,
     );
@@ -191,7 +191,39 @@ const Timeline: React.FC = () => {
                 width: clipLayout.width,
                 height: sourceItemHeight,
                 createTrackPlacement: "below",
+                previewKind: "clip",
             };
+        }
+
+        const sortedLanes = [...laneResult.layouts].sort((a, b) => a.top - b.top);
+        const betweenLanePreview = sortedLanes.slice(0, -1).find((lane, index) => {
+            const nextLane = sortedLanes[index + 1];
+            if (!nextLane) return false;
+
+            const boundaryY = lane.top + lane.laneHeight;
+
+            return Math.abs(targetLaneCenterY - boundaryY) <= LANE_INSERT_SNAP_THRESHOLD;
+        });
+
+        if (betweenLanePreview) {
+            const nextLane = sortedLanes[sortedLanes.indexOf(betweenLanePreview) + 1];
+
+            if (nextLane) {
+                return {
+                    clipId,
+                    from: requestedFrom,
+                    left: 0,
+                    top:
+                        nextLane.top -
+                        Math.ceil(LANE_INSERT_PREVIEW_HEIGHT / 2),
+                    width: zoomComputed.timelineWidth,
+                    height: LANE_INSERT_PREVIEW_HEIGHT,
+                    trackId: nextLane.trackId,
+                    createTrackPlacement: "above",
+                    relativeTrackId: nextLane.trackId,
+                    previewKind: "lane-insert",
+                };
+            }
         }
 
         const targetLane =
@@ -238,6 +270,7 @@ const Timeline: React.FC = () => {
             width: clipLayout.width,
             height: targetLane.itemHeight,
             trackId: targetLane.trackId,
+            previewKind: "clip",
         };
     };
 
@@ -284,6 +317,7 @@ const Timeline: React.FC = () => {
             from: dropPreview.from,
             trackId: dropPreview.trackId,
             createTrackPlacement: dropPreview.createTrackPlacement,
+            relativeTrackId: dropPreview.relativeTrackId,
         });
     };
 
@@ -409,7 +443,10 @@ const Timeline: React.FC = () => {
         if (!timelineRoot || !gridContainer) return;
 
         const startPointerY = event.clientY;
-        const startPanelHeight = timelinePanelHeight;
+        const startPanelHeight = Math.max(
+            TIMELINE_MIN_PANEL_HEIGHT,
+            Math.round(timelineRoot.getBoundingClientRect().height),
+        );
         const maxPanelHeight = Math.max(
             TIMELINE_MIN_PANEL_HEIGHT,
             gridContainer.clientHeight - PREVIEW_MIN_PANEL_HEIGHT,
@@ -536,7 +573,12 @@ const Timeline: React.FC = () => {
                                         }>
                                         {draggingClipId && clipDropPreview && (
                                             <div
-                                                className='pointer-events-none absolute rounded-sm border border-sky-500 bg-sky-500/20 shadow-[inset_0_0_0_1px_rgba(255,255,255,0.2)]'
+                                                className={`pointer-events-none absolute ${
+                                                    clipDropPreview.previewKind ===
+                                                    "lane-insert"
+                                                        ? "rounded-none bg-sky-500"
+                                                        : "rounded-sm border border-sky-500 bg-sky-500/20 shadow-[inset_0_0_0_1px_rgba(255,255,255,0.2)]"
+                                                }`}
                                                 style={{
                                                     left: clipDropPreview.left,
                                                     top: clipDropPreview.top,

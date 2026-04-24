@@ -78,6 +78,7 @@ export type EditorStoreActions = {
         from: Frame;
         trackId?: string;
         createTrackPlacement?: "above" | "below";
+        relativeTrackId?: string;
     }) => void;
 
     // ===== Text Editing =====

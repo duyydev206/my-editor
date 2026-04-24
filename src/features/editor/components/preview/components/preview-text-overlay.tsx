@@ -98,6 +98,7 @@ const EditableTextLayer: React.FC<{
     isSelected: boolean;
     isEditing: boolean;
 }> = ({ clip, scaleX, scaleY, isSelected, isEditing }) => {
+    const rootRef = useRef<HTMLDivElement>(null);
     const editableRef = useRef<HTMLDivElement>(null);
     const dragStartRef = useRef<{
         pointerX: number;
@@ -132,22 +133,12 @@ const EditableTextLayer: React.FC<{
         const range = document.createRange();
 
         range.selectNodeContents(element);
-        range.collapse(false);
         selection?.removeAllRanges();
         selection?.addRange(range);
     }, [clip.text, isEditing]);
 
     useEffect(() => {
-        const element = editableRef.current;
-        if (!element || isEditing || document.activeElement === element) {
-            return;
-        }
-
-        element.textContent = clip.text;
-    }, [clip.text, isEditing]);
-
-    useEffect(() => {
-        const element = editableRef.current;
+        const element = rootRef.current;
         if (!element) return;
 
         const updateMeasuredSize = () => {
@@ -211,12 +202,7 @@ const EditableTextLayer: React.FC<{
 
     return (
         <div
-            key={`${clip.id}-${isEditing ? "editing" : "display"}`}
-            ref={editableRef}
-            role='textbox'
-            aria-label='Edit text clip'
-            contentEditable={isEditing}
-            suppressContentEditableWarning
+            ref={rootRef}
             className='rounded-xs'
             style={getTextOverlayStyle({
                 clip,
@@ -244,21 +230,30 @@ const EditableTextLayer: React.FC<{
                 event.stopPropagation();
                 setSelectedClipIds([clip.id]);
                 startTextEditing({ clipId: clip.id, draftText: clip.text });
-            }}
-            onInput={(event: FormEvent<HTMLDivElement>) => {
-                updateTextDraft(event.currentTarget.textContent ?? "");
-            }}
-            onBlur={() => {
-                if (isEditing) {
-                    stopTextEditing();
-                }
-            }}
-            onKeyDown={(event) => {
-                if (event.key === "Escape") {
-                    event.currentTarget.blur();
-                }
             }}>
-            {isEditing ? null : clip.text}
+            {isEditing ? (
+                <div
+                    key={`${clip.id}-editing`}
+                    ref={editableRef}
+                    role='textbox'
+                    aria-label='Edit text clip'
+                    contentEditable
+                    suppressContentEditableWarning
+                    onInput={(event: FormEvent<HTMLDivElement>) => {
+                        updateTextDraft(event.currentTarget.textContent ?? "");
+                    }}
+                    onBlur={() => {
+                        stopTextEditing();
+                    }}
+                    onKeyDown={(event) => {
+                        if (event.key === "Escape") {
+                            event.currentTarget.blur();
+                        }
+                    }}
+                />
+            ) : (
+                <span key={`${clip.id}-display`}>{clip.text}</span>
+            )}
             {isSelected && !isEditing && (
                 <>
                     <span className='absolute -left-1 -top-1 h-2 w-2 border border-sky-500 bg-white' />
