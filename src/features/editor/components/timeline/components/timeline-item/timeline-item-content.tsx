@@ -73,11 +73,11 @@ const TimelineItemContent: React.FC<TimelineItemContentProps> = ({
 
                     <div className='absolute inset-x-0 bottom-0 h-5 bg-black/10'>
                         <div className='absolute inset-0 opacity-30'>
-                            <div className='flex h-full gap-[2px] px-1'>
+                            <div className='flex h-full gap-0.5 px-1'>
                                 {Array.from({ length: 12 }).map((_, index) => (
                                     <div
                                         key={index}
-                                        className='h-full flex-1 rounded-[2px] bg-white/20'
+                                        className='h-full flex-1 bg-white/20'
                                     />
                                 ))}
                             </div>

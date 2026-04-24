@@ -1,4 +1,11 @@
-import { Frame, Frames, Pixels, PlaybackStatus } from "../types";
+import {
+    ClipTransform,
+    Frame,
+    Frames,
+    MediaAsset,
+    Pixels,
+    PlaybackStatus,
+} from "../types";
 import { EditorState } from "../types/editor";
 
 export type EditorStoreState = EditorState;
@@ -37,6 +44,7 @@ export type EditorStoreActions = {
         viewportWidth: Pixels;
         viewportHeight: Pixels;
     }) => void;
+    setTimelinePanelHeight: (panelHeight: Pixels) => void;
     setTimelineScroll: (payload: {
         scrollLeft?: Pixels;
         scrollTop?: Pixels;
@@ -55,7 +63,29 @@ export type EditorStoreActions = {
     setSelectedGroupId: (groupId: string | null) => void;
     clearSelection: () => void;
 
+    // ===== Track Controls =====
+    toggleTrackHidden: (trackId: string) => void;
+    toggleTrackMuted: (trackId: string) => void;
+
+    // ===== Clip Creation =====
+    addTextClipAtPlayhead: (payload?: {
+        text?: string;
+        durationInFrames?: Frames;
+    }) => void;
+    addMediaAssetAsClip: (payload: { asset: MediaAsset }) => void;
+    moveClip: (payload: {
+        clipId: string;
+        from: Frame;
+        trackId?: string;
+        createTrackPlacement?: "above" | "below";
+        relativeTrackId?: string;
+    }) => void;
+
     // ===== Text Editing =====
+    updateClipTransform: (payload: {
+        clipId: string;
+        transform: Partial<ClipTransform>;
+    }) => void;
     startTextEditing: (payload: { clipId: string; draftText: string }) => void;
     updateTextDraft: (draftText: string) => void;
     stopTextEditing: () => void;

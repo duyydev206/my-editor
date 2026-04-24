@@ -1,7 +1,39 @@
 const Inspector = () => {
-	return (
-		<div className="h-full w-full">Inspector</div>
-	)
-}
+    return (
+        <div className='max-h-full w-full min-h-0 overflow-y-auto flex flex-col'>
+            <h1>Inspector</h1>
+            <h1>Inspector</h1>
+            <h1>Inspector</h1>
+            <h1>Inspector</h1>
+            <h1>Inspector</h1>
+            <h1>Inspector</h1>
+            <h1>Inspector</h1>
+            <h1>Inspector</h1>
+            <h1>Inspector</h1>
+            <h1>Inspector</h1>
+            <h1>Inspector</h1>
+            <h1>Inspector</h1>
+            <h1>Inspector</h1>
+            <h1>Inspector</h1>
+            <h1>Inspector</h1>
+            <h1>Inspector</h1>
+            <h1>Inspector</h1>
+            <h1>Inspector</h1>
+            <h1>Inspector</h1>
+            <h1>Inspector</h1>
+            <h1>Inspector</h1>
+            <h1>Inspector</h1>
+            <h1>Inspector</h1>
+            <h1>Inspector</h1>
+            <h1>Inspector</h1>
+            <h1>Inspector</h1>
+            <h1>Inspector</h1>
+            <h1>Inspector</h1>
+            <h1>Inspector</h1>
+            <h1>Inspector</h1>
+            <h1>Inspector</h1>
+        </div>
+    );
+};
 
-export default Inspector
+export default Inspector;

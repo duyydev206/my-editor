@@ -3,12 +3,22 @@
 import React, { useMemo } from "react";
 import {
     AbsoluteFill,
-    interpolate,
-    spring,
+    Audio,
+    Img,
+    Sequence,
     useCurrentFrame,
     useVideoConfig,
+    Video,
 } from "remotion";
-import { EditorProject, TextClip, TimelineClip, TimelineTrack } from "../types";
+import {
+    AudioClip,
+    EditorProject,
+    ImageClip,
+    TextClip,
+    TimelineClip,
+    TimelineTrack,
+    VideoClip,
+} from "../types";
 
 type EditorPreviewCompositionProps = {
     project?: EditorProject;
@@ -39,6 +49,7 @@ const fallbackProject: EditorProject = {
             isHidden: false,
         },
     ],
+    mediaAssets: [],
     clips: [
         {
             id: "clip-text-1",
@@ -49,6 +60,7 @@ const fallbackProject: EditorProject = {
             sourceStartFrame: 0,
             label: "Hello World",
             color: "#3b82f6",
+            layerIndex: 0,
             isLocked: false,
             isHidden: false,
             text: "Hello World",
@@ -81,6 +93,10 @@ const getTrackIndexMap = (tracks: TimelineTrack[]) => {
     return new Map(tracks.map((track) => [track.id, track.index]));
 };
 
+const getClipLayerIndex = (clip: TimelineClip) => {
+    return clip.layerIndex;
+};
+
 const sortVisualClipsForRender = (
     clips: TimelineClip[],
     tracks: TimelineTrack[],
@@ -88,6 +104,13 @@ const sortVisualClipsForRender = (
     const trackIndexMap = getTrackIndexMap(tracks);
 
     return [...clips].sort((a, b) => {
+        const aLayerIndex = getClipLayerIndex(a);
+        const bLayerIndex = getClipLayerIndex(b);
+
+        if (aLayerIndex !== bLayerIndex) {
+            return aLayerIndex - bLayerIndex;
+        }
+
         const aTrackIndex = trackIndexMap.get(a.trackId) ?? 0;
         const bTrackIndex = trackIndexMap.get(b.trackId) ?? 0;
 
@@ -108,52 +131,16 @@ const getBasicClipTransitionStyle = (
     localFrame: number,
     fps: number,
 ) => {
-    const enterDuration = Math.min(12, clip.durationInFrames);
-    const exitDuration = Math.min(12, clip.durationInFrames);
+    void clip;
+    void localFrame;
+    void fps;
 
-    const enterOpacity = interpolate(localFrame, [0, enterDuration], [0, 1], {
-        extrapolateLeft: "clamp",
-        extrapolateRight: "clamp",
-    });
-
-    const enterTranslateY = interpolate(
-        localFrame,
-        [0, enterDuration],
-        [24, 0],
-        {
-            extrapolateLeft: "clamp",
-            extrapolateRight: "clamp",
-        },
-    );
-
-    const exitStart = Math.max(clip.durationInFrames - exitDuration, 0);
-
-    const exitOpacity = interpolate(
-        localFrame,
-        [exitStart, clip.durationInFrames],
-        [1, 0],
-        {
-            extrapolateLeft: "clamp",
-            extrapolateRight: "clamp",
-        },
-    );
-
-    const popInScale = spring({
-        frame: localFrame,
-        fps,
-        config: {
-            damping: 200,
-            stiffness: 180,
-            mass: 0.7,
-        },
-    });
-
-    const scale = interpolate(popInScale, [0, 1], [0.92, 1]);
-
+    // OLD logic: Every clip had a built-in fade/translate/scale transition.
+    // NEW logic: Clips render statically by default; custom effects will be modeled explicitly later.
     return {
-        opacity: Math.min(enterOpacity, exitOpacity),
-        translateY: enterTranslateY,
-        scale,
+        opacity: 1,
+        translateY: 0,
+        scale: 1,
     };
 };
 
@@ -164,7 +151,6 @@ const TextClipLayer: React.FC<{
 }> = ({ clip, frame, trackOrder }) => {
     const { fps } = useVideoConfig();
     const localFrame = getClipLocalFrame(clip, frame);
-
     const transition = getBasicClipTransitionStyle(clip, localFrame, fps);
 
     const transform = clip.transform ?? {
@@ -211,6 +197,142 @@ const TextClipLayer: React.FC<{
     );
 };
 
+const VideoClipLayer: React.FC<{
+    clip: VideoClip;
+    frame: number;
+    trackOrder: number;
+    isTrackMuted: boolean;
+}> = ({ clip, frame, trackOrder, isTrackMuted }) => {
+    const { fps } = useVideoConfig();
+    const localFrame = getClipLocalFrame(clip, frame);
+    const transition = getBasicClipTransitionStyle(clip, localFrame, fps);
+
+    const transform = clip.transform ?? {
+        x: 0,
+        y: 0,
+        scaleX: 1,
+        scaleY: 1,
+        rotation: 0,
+        opacity: 1,
+        anchorX: 0.5,
+        anchorY: 0.5,
+    };
+
+    return (
+        <div
+            style={{
+                position: "absolute",
+                left: transform.x,
+                top: transform.y,
+                transform: `
+          translate(-${(transform.anchorX ?? 0.5) * 100}%, -${(transform.anchorY ?? 0.5) * 100}%)
+          translateY(${transition.translateY}px)
+          rotate(${transform.rotation}deg)
+          scale(${transform.scaleX * transition.scale}, ${transform.scaleY * transition.scale})
+        `,
+                opacity: (transform.opacity ?? 1) * transition.opacity,
+                zIndex: trackOrder,
+                width: transform.width,
+                height: transform.height,
+            }}>
+            <Video
+                src={clip.src}
+                startFrom={clip.sourceStartFrame}
+                endAt={clip.sourceStartFrame + clip.durationInFrames}
+                volume={clip.isMuted || isTrackMuted ? 0 : clip.volume}
+                playbackRate={clip.playbackRate ?? 1}
+                // OLD logic: Video used "contain", which could leave black space around uploaded media.
+                // NEW logic: Uploaded video fills its clip bounds by default.
+                style={{ width: "100%", height: "100%", objectFit: "cover" }}
+            />
+        </div>
+    );
+};
+
+const ImageClipLayer: React.FC<{
+    clip: ImageClip;
+    frame: number;
+    trackOrder: number;
+}> = ({ clip, frame, trackOrder }) => {
+    const { fps } = useVideoConfig();
+    const localFrame = getClipLocalFrame(clip, frame);
+    const transition = getBasicClipTransitionStyle(clip, localFrame, fps);
+
+    const transform = clip.transform ?? {
+        x: 0,
+        y: 0,
+        scaleX: 1,
+        scaleY: 1,
+        rotation: 0,
+        opacity: 1,
+        anchorX: 0.5,
+        anchorY: 0.5,
+    };
+
+    return (
+        <div
+            style={{
+                position: "absolute",
+                left: transform.x,
+                top: transform.y,
+                transform: `
+          translate(-${(transform.anchorX ?? 0.5) * 100}%, -${(transform.anchorY ?? 0.5) * 100}%)
+          translateY(${transition.translateY}px)
+          rotate(${transform.rotation}deg)
+          scale(${transform.scaleX * transition.scale}, ${transform.scaleY * transition.scale})
+        `,
+                opacity: (transform.opacity ?? 1) * transition.opacity,
+                zIndex: trackOrder,
+                width: transform.width,
+                height: transform.height,
+            }}>
+            <Img
+                src={clip.src}
+                style={{
+                    width: "100%",
+                    height: "100%",
+                    objectFit: clip.objectFit ?? "contain",
+                }}
+            />
+        </div>
+    );
+};
+
+const AudioClipLayer: React.FC<{
+    clip: AudioClip;
+    isTrackMuted: boolean;
+}> = ({ clip, isTrackMuted }) => {
+    return (
+        <Audio
+            src={clip.src}
+            startFrom={clip.sourceStartFrame}
+            endAt={clip.sourceStartFrame + clip.durationInFrames}
+            volume={clip.isMuted || isTrackMuted ? 0 : clip.volume}
+            playbackRate={clip.playbackRate ?? 1}
+        />
+    );
+};
+
+const EmptyPreviewState: React.FC = () => {
+    return (
+        <AbsoluteFill
+            style={{
+                alignItems: "center",
+                justifyContent: "center",
+                color: "rgba(253, 245, 245, 0.72)",
+                fontFamily: "Inter, Arial, sans-serif",
+                fontSize: 120,
+                fontWeight: 500,
+                textAlign: "center",
+                userSelect: "none",
+            }}>
+            <h1 className='px-10'>
+                Drop videos and images here to get started
+            </h1>
+        </AbsoluteFill>
+    );
+};
+
 const EditorPreviewComposition: React.FC<EditorPreviewCompositionProps> = ({
     project = fallbackProject,
 }) => {
@@ -218,15 +340,24 @@ const EditorPreviewComposition: React.FC<EditorPreviewCompositionProps> = ({
     const { width, height, fps } = useVideoConfig();
 
     const visibleSortedClips = useMemo(() => {
-        const visible = project.clips.filter(
-            (clip) => !clip.isHidden && isClipVisibleAtFrame(clip, frame),
-        );
+        const trackMap = new Map(project.tracks.map((track) => [track.id, track]));
+        const visible = project.clips.filter((clip) => {
+            const track = trackMap.get(clip.trackId);
+
+            // OLD logic: Preview only respected clip.isHidden.
+            // NEW logic: Track hide state hides all clips in that lane from Preview.
+            return (
+                !clip.isHidden &&
+                !track?.isHidden &&
+                isClipVisibleAtFrame(clip, frame)
+            );
+        });
 
         return sortVisualClipsForRender(visible, project.tracks);
     }, [frame, project.clips, project.tracks]);
 
-    const trackIndexMap = useMemo(() => {
-        return getTrackIndexMap(project.tracks);
+    const trackMap = useMemo(() => {
+        return new Map(project.tracks.map((track) => [track.id, track]));
     }, [project.tracks]);
 
     return (
@@ -237,26 +368,80 @@ const EditorPreviewComposition: React.FC<EditorPreviewCompositionProps> = ({
                 height,
                 overflow: "hidden",
             }}>
+            {project.clips.length === 0 && <EmptyPreviewState />}
+
             {visibleSortedClips.map((clip) => {
-                const trackOrder = trackIndexMap.get(clip.trackId) ?? 0;
+                const trackOrder = getClipLayerIndex(clip);
+                const track = trackMap.get(clip.trackId);
+                const isTrackMuted = track?.isMuted ?? false;
+                let clipLayer: React.ReactNode = null;
 
                 switch (clip.type) {
                     case "text":
-                        return (
+                        clipLayer = (
                             <TextClipLayer
-                                key={clip.id}
                                 clip={clip}
                                 frame={frame}
                                 trackOrder={trackOrder}
                             />
                         );
+                        break;
+
+                    case "video":
+                        clipLayer = (
+                            <VideoClipLayer
+                                clip={clip}
+                                frame={frame}
+                                trackOrder={trackOrder}
+                                isTrackMuted={isTrackMuted}
+                            />
+                        );
+                        break;
+
+                    case "image":
+                        clipLayer = (
+                            <ImageClipLayer
+                                clip={clip}
+                                frame={frame}
+                                trackOrder={trackOrder}
+                            />
+                        );
+                        break;
+
+                    case "audio":
+                        clipLayer = (
+                            <AudioClipLayer
+                                clip={clip}
+                                isTrackMuted={isTrackMuted}
+                            />
+                        );
+                        break;
 
                     default:
-                        return null;
+                        clipLayer = null;
+                        break;
                 }
+
+                if (!clipLayer) {
+                    return null;
+                }
+
+                return (
+                    <Sequence
+                        key={clip.id}
+                        from={clip.from}
+                        durationInFrames={clip.durationInFrames}
+                        style={{
+                            pointerEvents: "none",
+                        }}>
+                        {/* OLD logic: Clip visibility was filtered by timeline frame, but media still rendered on the global composition frame.
+                            NEW logic: Each clip now renders inside a Remotion Sequence so source timing starts at clip.from. */}
+                        {clipLayer}
+                    </Sequence>
+                );
             })}
-            <span className='text-white text-end p-1'>
-                {width} × {height} • {fps} FPS • Frame {frame}
+            <span className='p-1 text-end text-white'>
+                {width} x {height} • {fps} FPS • Frame {frame}
             </span>
         </AbsoluteFill>
     );

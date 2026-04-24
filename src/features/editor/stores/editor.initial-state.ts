@@ -141,17 +141,15 @@ const CLIPS: TimelineClip[] = [
 ];
 
 const getProjectDurationInFrames = (clips: TimelineClip[]) => {
-    if (clips.length === 0) return 60;
+    // OLD logic: Empty projects started at 60 frames.
+    // NEW logic: Project duration represents real content length; timeline padding is handled by the timeline zoom layer.
+    if (clips.length === 0) return 0;
 
     const maxClipEnd = clips.reduce((maxEnd, clip) => {
         return Math.max(maxEnd, clip.from + clip.durationInFrames);
     }, 0);
 
-    /**
-     * Temporary padding so the project does not end exactly at the last clip.
-     * This makes the timeline feel more natural to work with.
-     */
-    return maxClipEnd + 60;
+    return Math.max(1, maxClipEnd);
 };
 
 export const INITIAL_EDITOR_STATE: EditorState = {
@@ -169,6 +167,7 @@ export const INITIAL_EDITOR_STATE: EditorState = {
         trackGroups: TRACK_GROUPS,
         tracks: TRACKS,
         clips: CLIPS,
+        mediaAssets: [],
     },
 
     runtime: {
@@ -207,6 +206,7 @@ export const INITIAL_EDITOR_STATE: EditorState = {
                 showThumbnails: true,
                 isLoopEnabled: false,
             },
+            panelHeight: null,
         },
 
         selection: {

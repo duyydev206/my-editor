@@ -10,6 +10,7 @@ import PreviewStage from "./preview-stage";
 type PreviewViewportProps = {
     playerRef: React.RefObject<PlayerRef | null>;
     video: ProjectVideoConfig;
+    playbackDurationInFrames: number;
     viewport: PreviewViewportState;
     isLoopEnabled: boolean;
     onFrameUpdate: (frame: number) => void;
@@ -20,6 +21,7 @@ type PreviewViewportProps = {
 export const PreviewViewport: React.FC<PreviewViewportProps> = ({
     playerRef,
     video,
+    playbackDurationInFrames,
     viewport,
     isLoopEnabled,
     onFrameUpdate,
@@ -58,6 +60,7 @@ export const PreviewViewport: React.FC<PreviewViewportProps> = ({
                 <PreviewStage
                     playerRef={playerRef}
                     video={video}
+                    playbackDurationInFrames={playbackDurationInFrames}
                     width={layout.renderedWidth}
                     height={layout.renderedHeight}
                     onFrameUpdate={onFrameUpdate}

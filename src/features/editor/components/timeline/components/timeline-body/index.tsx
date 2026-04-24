@@ -1,5 +1,4 @@
 import { TimelineTrackLaneLayout } from "@/src/features/editor/lib/build-track-lane-layouts";
-import { TIMELINE_GUTTER_X } from "@/src/features/editor/lib/timeline-math";
 import TimelineLaneBackgrounds from "./timeline-lane-backgrounds";
 import TimelineItemsLayer from "./timeline-items-layer";
 
@@ -18,12 +17,12 @@ const TimelineBody: React.FC<TimelineBodyProps> = ({
 }) => {
     return (
         <div
-            className='relative'
+            className='relative min-w-full'
             style={{
                 width: timelineWidth,
                 height: totalHeight,
-                paddingLeft: TIMELINE_GUTTER_X,
-                paddingRight: TIMELINE_GUTTER_X,
+                // OLD logic: TimelineBody also applied horizontal gutter padding.
+                // NEW logic: frameToPx/ruler/playhead already own the gutter, so body padding would offset clips twice.
             }}>
             <TimelineLaneBackgrounds width={timelineWidth} lanes={lanes} />
             <TimelineItemsLayer>{children}</TimelineItemsLayer>

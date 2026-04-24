@@ -1,14 +1,18 @@
+import { useEffect, useRef, type PointerEvent } from "react";
 import { Frames } from "@/src/features/editor/types/primitives";
 import {
     TIMELINE_GUTTER_X,
     RULER_HEIGHT,
 } from "@/src/features/editor/lib/timeline-math";
+import { dispatchPreviewSeekFrame } from "@/src/features/editor/lib/preview-seek";
 
 type TimelineRulerProps = {
     fps: number;
     visibleDurationInFrames: Frames;
+    maxSeekFrame: Frames;
     tickFrames: Frames;
     timelineWidth: number;
+    onSeekFrame?: (frame: number) => void;
 };
 
 const formatTimecode = (frame: number, fps: number) => {
@@ -27,9 +31,13 @@ const formatTimecode = (frame: number, fps: number) => {
 const TimelineRuler: React.FC<TimelineRulerProps> = ({
     fps,
     visibleDurationInFrames,
+    maxSeekFrame,
     tickFrames,
     timelineWidth,
+    onSeekFrame,
 }: TimelineRulerProps) => {
+    const previewSeekFrameRef = useRef<number | null>(null);
+    const previewSeekRafRef = useRef<number | null>(null);
     const usableWidth = Math.max(0, timelineWidth - TIMELINE_GUTTER_X * 2);
     const pixelsPerFrame =
         visibleDurationInFrames > 0 ? usableWidth / visibleDurationInFrames : 0;
@@ -47,16 +55,71 @@ const TimelineRuler: React.FC<TimelineRulerProps> = ({
         };
     });
 
+    const flushPreviewSeekFrame = () => {
+        previewSeekRafRef.current = null;
+
+        const frame = previewSeekFrameRef.current;
+        if (frame === null) return;
+
+        dispatchPreviewSeekFrame(frame);
+    };
+
+    const schedulePreviewSeek = (frame: number) => {
+        previewSeekFrameRef.current = frame;
+
+        if (previewSeekRafRef.current !== null) return;
+
+        previewSeekRafRef.current =
+            window.requestAnimationFrame(flushPreviewSeekFrame);
+    };
+
+    const seekFromPointer = (
+        event: PointerEvent<HTMLDivElement>,
+        shouldCapture: boolean,
+    ) => {
+        if (pixelsPerFrame <= 0) return;
+
+        if (shouldCapture) {
+            event.currentTarget.setPointerCapture(event.pointerId);
+        }
+
+        const rect = event.currentTarget.getBoundingClientRect();
+        const x = event.clientX - rect.left;
+        const frame = Math.round((x - TIMELINE_GUTTER_X) / pixelsPerFrame);
+        const clampedFrame = Math.max(0, Math.min(frame, maxSeekFrame));
+
+        onSeekFrame?.(clampedFrame);
+        schedulePreviewSeek(clampedFrame);
+    };
+
+    useEffect(() => {
+        return () => {
+            if (previewSeekRafRef.current !== null) {
+                window.cancelAnimationFrame(previewSeekRafRef.current);
+            }
+        };
+    }, []);
+
     return (
-        <div className='sticky top-0 z-1'>
+        <div className='sticky top-0 z-10'>
             <div
-                className='pointer-events-none absolute top-0 h-7 bg-gray-300'
+                className='min-w-full pointer-events-none absolute top-0 h-7 bg-gray-300'
                 style={{ width: timelineWidth }}
             />
 
             <div
                 id='tick-headers'
-                className='relative overflow-hidden select-none h-7'
+                className='relative min-w-full overflow-hidden select-none h-7 cursor-pointer'
+                onPointerDown={(event) => {
+                    // OLD logic: Ruler was display-only.
+                    // NEW logic: Clicking or dragging the ruler scrubs the shared player frame.
+                    seekFromPointer(event, true);
+                }}
+                onPointerMove={(event) => {
+                    if (event.buttons !== 1) return;
+
+                    seekFromPointer(event, false);
+                }}
                 style={{
                     width: timelineWidth,
                 }}>
