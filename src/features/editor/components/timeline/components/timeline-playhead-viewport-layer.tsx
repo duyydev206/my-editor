@@ -21,6 +21,7 @@ type TimelinePlayheadViewportLayerProps = {
     timelineContentRef: React.RefObject<HTMLDivElement | null>;
     pixelsPerFrame: number;
     playbackDurationInFrames: number;
+    isInteractionDisabled?: boolean;
 };
 
 const TimelinePlayheadViewportLayer: React.FC<
@@ -30,6 +31,7 @@ const TimelinePlayheadViewportLayer: React.FC<
     timelineContentRef,
     pixelsPerFrame,
     playbackDurationInFrames,
+    isInteractionDisabled = false,
 }) => {
     const playheadRef = useRef<HTMLDivElement>(null);
     const scrubFrameRef = useRef<number | null>(null);
@@ -229,6 +231,7 @@ const TimelinePlayheadViewportLayer: React.FC<
     const handlePlayheadScrubStart = (event: PointerEvent<HTMLDivElement>) => {
         event.preventDefault();
         event.stopPropagation();
+        if (isInteractionDisabled) return;
 
         if (playbackStatus === "playing") {
             pause();
@@ -240,6 +243,7 @@ const TimelinePlayheadViewportLayer: React.FC<
     const handlePlayheadScrubMove = (event: PointerEvent<HTMLDivElement>) => {
         event.preventDefault();
         event.stopPropagation();
+        if (isInteractionDisabled) return;
 
         scrubToClientX(event.clientX);
     };
@@ -247,6 +251,7 @@ const TimelinePlayheadViewportLayer: React.FC<
     const handlePlayheadScrubEnd = (event: PointerEvent<HTMLDivElement>) => {
         event.preventDefault();
         event.stopPropagation();
+        if (isInteractionDisabled) return;
 
         const frame = scrubFrameRef.current;
 
@@ -394,6 +399,7 @@ const TimelinePlayheadViewportLayer: React.FC<
                 onScrubStart={handlePlayheadScrubStart}
                 onScrubMove={handlePlayheadScrubMove}
                 onScrubEnd={handlePlayheadScrubEnd}
+                isInteractionDisabled={isInteractionDisabled}
             />
         </div>
     );

@@ -13,6 +13,7 @@ type TimelineRulerProps = {
     tickFrames: Frames;
     timelineWidth: number;
     onSeekFrame?: (frame: number) => void;
+    isInteractionDisabled?: boolean;
 };
 
 const formatTimecode = (frame: number, fps: number) => {
@@ -35,6 +36,7 @@ const TimelineRuler: React.FC<TimelineRulerProps> = ({
     tickFrames,
     timelineWidth,
     onSeekFrame,
+    isInteractionDisabled = false,
 }: TimelineRulerProps) => {
     const previewSeekFrameRef = useRef<number | null>(null);
     const previewSeekRafRef = useRef<number | null>(null);
@@ -78,6 +80,7 @@ const TimelineRuler: React.FC<TimelineRulerProps> = ({
         event: PointerEvent<HTMLDivElement>,
         shouldCapture: boolean,
     ) => {
+        if (isInteractionDisabled) return;
         if (pixelsPerFrame <= 0) return;
 
         if (shouldCapture) {
@@ -112,11 +115,13 @@ const TimelineRuler: React.FC<TimelineRulerProps> = ({
                 id='tick-headers'
                 className='relative min-w-full overflow-hidden select-none h-7 cursor-pointer'
                 onPointerDown={(event) => {
+                    if (isInteractionDisabled) return;
                     // OLD logic: Ruler was display-only.
                     // NEW logic: Clicking or dragging the ruler scrubs the shared player frame.
                     seekFromPointer(event, true);
                 }}
                 onPointerMove={(event) => {
+                    if (isInteractionDisabled) return;
                     if (event.buttons !== 1) return;
 
                     seekFromPointer(event, false);

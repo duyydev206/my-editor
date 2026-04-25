@@ -40,6 +40,7 @@ const TimelineItem: React.FC<TimelineItemProps> = ({
             },
             disabled: isDragDisabled || isLocked,
         });
+    const dragTransform = isDragging ? undefined : CSS.Translate.toString(transform);
 
     return (
         <div
@@ -63,8 +64,8 @@ const TimelineItem: React.FC<TimelineItemProps> = ({
                         height,
                         position: "absolute",
                         zIndex: isDragging ? 9999 : 5,
-                        transform: CSS.Translate.toString(transform),
-                        opacity: isDragging ? 0.82 : undefined,
+                        transform: dragTransform,
+                        opacity: isDragging ? 0 : undefined,
                         touchAction: "none",
                     }}>
                     <TimelineItemShell

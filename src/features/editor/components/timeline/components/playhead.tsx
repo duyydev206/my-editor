@@ -4,14 +4,23 @@ type PlayheadProps = {
     onScrubStart?: (event: PointerEvent<HTMLDivElement>) => void;
     onScrubMove?: (event: PointerEvent<HTMLDivElement>) => void;
     onScrubEnd?: (event: PointerEvent<HTMLDivElement>) => void;
+    isInteractionDisabled?: boolean;
 };
 
 const Playhead = forwardRef<HTMLDivElement, PlayheadProps>(
-    ({ onScrubStart, onScrubMove, onScrubEnd }: PlayheadProps, ref) => {
+    (
+        {
+            onScrubStart,
+            onScrubMove,
+            onScrubEnd,
+            isInteractionDisabled = false,
+        }: PlayheadProps,
+        ref,
+    ) => {
         return (
             <div
                 ref={ref}
-                className='pointer-events-none absolute top-0 flex flex-col items-center -ml-2.5'
+                className='pointer-events-none absolute top-0 bottom-0 flex flex-col items-center -ml-2.5'
                 id='playhead'
                 style={{
                     left: 0,
@@ -23,10 +32,12 @@ const Playhead = forwardRef<HTMLDivElement, PlayheadProps>(
                 <div
                     className='sticky z-1 top-0 pointer-events-auto cursor-pointer'
                     onPointerDown={(event) => {
+                        if (isInteractionDisabled) return;
                         event.currentTarget.setPointerCapture(event.pointerId);
                         onScrubStart?.(event);
                     }}
                     onPointerMove={(event) => {
+                        if (isInteractionDisabled) return;
                         if (event.buttons !== 1) return;
 
                         onScrubMove?.(event);
@@ -43,7 +54,7 @@ const Playhead = forwardRef<HTMLDivElement, PlayheadProps>(
                             marginTop: "-1px",
                         }}>
                         <path
-                            d='M50.4313 37.0917 L30.4998 51.4424 L 30.4998 1800 L 25 1800 L 25 51.4424 L3.73299 37.0763C2.65291 36.382 2 35.1861 2 33.9021V5.77359C2 3.68949 3.68949 2 5.77358 2H48.2264C50.3105 2 52 3.68949 52 5.77358V34.0293C52 35.243 51.4163 36.3826 50.4313 37.0917Z'
+                            d='M50.4313 37.0917 L30.4998 51.4424 L 30.4998 2000 L 25 2000 L 25 51.4424 L3.73299 37.0763C2.65291 36.382 2 35.1861 2 33.9021V5.77359C2 3.68949 3.68949 2 5.77358 2H48.2264C50.3105 2 52 3.68949 52 5.77358V34.0293C52 35.243 51.4163 36.3826 50.4313 37.0917Z'
                             style={{ fill: "#fff" }}
                             strokeWidth='3'
                             stroke='black'

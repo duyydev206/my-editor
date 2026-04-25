@@ -1,216 +1,496 @@
-# Phân Tích Chuyên Sâu về Cơ Chế Zoom và Hiển Thị Timeline
+# Timeline Maintenance Notes
 
-## 1. Độ Rộng Timeline (Timeline Width) Tăng Gần Như Tuyến Tính Theo Zoom
+## Purpose
 
-**Quan sát:** Khi `zoomValue` tăng từng nấc, `timelineWidth` tăng gần như một lượng cố định.
+This document captures the current Timeline behavior and the refactor plan for making Timeline code cleaner, more maintainable, and more performant without changing the current user experience.
 
-**Dữ liệu đo đạc:**
+Read this before changing files under:
 
-- **Video Dài (Khoảng 3 phút 33 giây):**
-    - `zoom 1` → `1949px`
-    - `zoom 2` → `5362px` (Tăng: `3413px`)
-    - `zoom 3` → `8776.38px` (Tăng: `3414.38px`)
-    - `zoom 4` → `12190.1px` (Tăng: `3413.72px`)
-    - ...
-    - `zoom 10` → `32672px`
+```text
+src/features/editor/components/timeline
+src/features/editor/lib/build-clip-layouts.ts
+src/features/editor/lib/build-track-lane-layouts.ts
+src/features/editor/lib/timeline-math.ts
+src/features/editor/lib/timeline-zoom-engine.ts
+src/features/editor/stores/editor.store.ts
+```
 
-- **Video Ngắn (Khoảng 31.23 giây):**
-    - `zoom 1` → `1949px`
-    - `zoom 2` → `2524.7px` (Tăng: `575.7px`)
-    - `zoom 3` → `3100.4px` (Tăng: `575.7px`)
-    - ...
-    - `zoom 10` → `7130.3px`
+## Non-Negotiable Rule
 
-**Kết luận:**
+Keep current Timeline behavior working exactly as it does now unless the user explicitly requests a behavior change.
 
-- `timelineWidth` tăng gần như tuyến tính với `zoomValue`.
-- Độ tăng mỗi bước (`deltaWidth`) phụ thuộc vào **duration** của timeline/video. Video dài hơn có độ tăng `deltaWidth` lớn hơn.
+UI markup and Tailwind classes should be preserved unless a bug fix requires a minimal targeted edit.
 
----
+## Current Behavior Contract
 
-## 2. Zoom 1 Bị Clamp Về Một Độ Rộng Tối Thiểu (`minTimelineWidth`)
+### Timeline Layout
 
-**Quan sát:** Ngay cả khi video ngắn hoặc timeline trống, `zoom 1` luôn cho ra một độ rộng nhất định.
+- Timeline has a sticky ruler at the top of the scrollable timeline area.
+- Track headers stay sticky on the left.
+- Track corner must stay fixed at the top-left of the timeline viewport.
+- Playhead viewport layer must stay fixed relative to the visible timeline viewport, not scroll vertically with content.
+- Timeline content height is based on `RULER_HEIGHT + displayedLaneResult.totalHeight`.
+- Ruler, clips, and playhead must share the same frame-to-pixel system from `timeline-math`.
 
-**Dữ liệu đo đạc:**
+### Ruler And Playhead
 
-- Timeline trống: `1949px`
-- Video ngắn (zoom 1): `1949px`
-- Video dài (zoom 1): `1949px`
+- Clicking or dragging the ruler seeks the shared player frame.
+- Playhead can be scrubbed directly.
+- Playhead can sit on the end boundary.
+- Playhead line height must follow timeline layer height, not a hardcoded SVG path.
+- Timeline panel resizing must not trigger ruler seek or playhead scrub.
 
-**Kết luận:**
-Tồn tại một quy tắc mạnh mẽ:
-`timelineWidth = max(minTimelineWidth, computedWidth)`
-với `minTimelineWidth ≈ 1949px`.
-Điều này đảm bảo timeline luôn có độ rộng tối thiểu để người dùng nhìn và thao tác.
+### Timeline Panel Resize
 
----
+- Dragging the timeline resize handle changes timeline panel height.
+- Resize handle captures pointer during resize.
+- Ruler and playhead interactions are disabled while resizing.
+- Resizing must not move the playhead.
 
-## 3. Độ Rộng Tick (Tick Width) Không Cố Định
+### Clip Drag/Drop
 
-**Quan sát:** Nhìn ban đầu có thể tưởng `tickWidth` (độ rộng của mỗi đơn vị thời gian trên ruler) cố định (ví dụ: 1 giây/tick hoặc 1 frame/tick), nhưng dữ liệu đo lại cho thấy điều ngược lại.
+- The real source clip is hidden while dragging to avoid transformed DOM overflow expanding the scroll container.
+- The moving dragged clip is rendered through `DragOverlay`.
+- The moving dragged clip should look like the real clip.
+- The target ghost/placeholder is a rounded gray block without border.
+- dnd-kit `autoScroll` stays disabled.
+- Timeline uses custom bounded drag auto-scroll.
 
-**Dữ liệu đo đạc (Video 31.23 giây):**
+### Lane Creation Rules
 
-- `zoom 1` → `tickWidth` khoảng `241.688px`
-- `zoom 2` → `tickWidth` khoảng `314.194px`
-- `zoom 3` → `tickWidth` khoảng `386.7px`
-- ...
-- `zoom 6` → `tickWidth` khoảng `604.219px`
-- **"Reset" tại `zoom 7`**:
-    - `zoom 7` → `tickWidth` khoảng `135.345px`
-    - `zoom 8` → `tickWidth` khoảng `149.846px`
-    - `zoom 9` → `tickWidth` khoảng `164.348px`
-    - `zoom 10` → `tickWidth` khoảng `178.849px`
+- If timeline has only one lane, drag/drop must not create additional lanes.
+- Dragging above the top lane can create a new lane only when there is more than one lane.
+- Dragging below the bottom lane can create a new lane only when there is more than one lane.
+- Top/bottom lane creation shows a temporary lane preview while dragging.
+- Dragging between two existing lanes shows a blue gap line only when both adjacent lanes have at least one real clip.
+- The dragged clip does not count as occupying its source lane while it is being dragged.
+- Dropping on a valid between-lane gap creates a new lane at that position.
+- After drop, empty lanes are cleaned up.
 
-**Kết luận:**
+### Clip Movement Rules
 
-- `tickSpacing` (khoảng cách giữa các tick) thay đổi và không giữ một đơn vị cố định.
-- Nó đổi theo các "mốc step" khác nhau.
+- Clips can move horizontally by frame.
+- Clips can move vertically between lanes.
+- Drops onto overlapping clips walk forward to the next available non-overlapping frame.
+- Moving a clip recalculates project duration.
+- Moving a clip syncs layer indexes with track order so preview stacking matches timeline order.
+- Locked clips or locked tracks should not move.
 
----
+### Selection And Delete
 
-## 4. Ruler Sử Dụng "Step" Động, Không Phải Cố Định
+- Clicking a clip selects it.
+- Selected clips render selected styling.
+- Delete/Backspace removes selected clips unless focus is in an editable element.
+- Deleting clips removes empty tracks and recalculates project duration.
 
-**Quan sát:** Ruler (thước đo thời gian) chọn các "major step" (khoảng thời gian lớn nhất hiển thị) một cách động để các tick luôn "vừa mắt" người dùng.
+## Current Code Map
 
-**Ví dụ các step có thể đổi:**
-Thay vì luôn là 1 giây hoặc 1 frame, nó có thể đổi giữa:
+### Main Timeline Orchestrator
 
-- 24 giây
-- 8 giây
-- 4 giây
-- 2 giây
-- 1 giây
-- 0.8 giây
-- 0.4 giây
-- ... tùy thuộc vào `zoomValue` và `duration`.
+```text
+src/features/editor/components/timeline/index.tsx
+```
 
----
+Current responsibilities:
 
-## 5. Quy Luật Rất Có Khả Năng Dựa Trên Frame (Frame-Based)
+- Reads project, clips, tracks, current timeline UI state.
+- Computes zoom with `computeTimelineZoom`.
+- Computes lane layouts with `buildTrackLaneLayouts`.
+- Computes clip layouts with `buildClipLayouts`.
+- Builds temporary preview tracks while dragging top/bottom lane insert targets.
+- Computes drop previews for clip drag/drop.
+- Implements drag auto-scroll.
+- Handles dnd-kit drag lifecycle.
+- Handles keyboard delete.
+- Handles timeline panel resize.
+- Renders toolbar, track headers, ruler, body, playhead layer.
 
-**Lập luận:**
+This file is currently the main Timeline complexity hotspot.
 
-- Editor được đồng bộ với Remotion, mà Remotion hoạt động dựa trên frame.
-- Do đó, hệ thống hiển thị của ruler và timeline phải dựa trên frame làm gốc.
+### Timeline Pure Layout Logic
 
-**Công thức tư duy hợp lý:**
+```text
+src/features/editor/lib/build-track-lane-layouts.ts
+src/features/editor/lib/build-clip-layouts.ts
+src/features/editor/lib/timeline-math.ts
+src/features/editor/lib/timeline-zoom-engine.ts
+src/features/editor/lib/timeline-zoom-spec.ts
+```
 
-1.  Tính `pixelsPerFrame` (số pixel cho mỗi frame).
-2.  Chọn `stepFrames` (số frame trong một major step) từ một danh sách các step "đẹp".
-3.  Render ruler labels dựa trên `stepFrames` đã chọn.
+These are closer to reusable logic and should become the foundation for tests.
 
-**Công thức tính `tickWidthPx`:**
-`tickWidthPx = stepFrames * pixelsPerFrame`
+### Timeline Components
 
-Mục tiêu là chọn `stepFrames` sao cho `tickWidthPx` nằm trong khoảng nhìn đẹp (thường là từ vài chục đến vài trăm pixel).
+```text
+src/features/editor/components/timeline/components/timeline-ruler.tsx
+src/features/editor/components/timeline/components/timeline-toolbar.tsx
+src/features/editor/components/timeline/components/timeline-body
+src/features/editor/components/timeline/components/timeline-item
+src/features/editor/components/timeline/components/timeline-track-headers
+src/features/editor/components/timeline/components/timeline-playhead-viewport-layer.tsx
+src/features/editor/components/timeline/components/playhead.tsx
+```
 
----
+These should remain mostly presentational after refactor. Interaction-heavy logic should move into hooks or pure helpers.
 
-## 6. Với Timeline Dài, Ruler Có Xu Hướng Đi Qua Các Step Lớn
+### Store Logic
 
-**Quan sát (Video 3 phút 33 giây):**
+```text
+src/features/editor/stores/editor.store.ts
+```
 
-- `zoom thấp` → `step` gần `24s`
-- `zoom vừa` → `step` gần `8s`
-- `zoom cao hơn` → `step` gần `4s`
+Timeline-related store responsibilities currently include:
 
----
+- timeline zoom actions
+- timeline viewport actions
+- timeline toolbar toggles
+- track mute/hide actions
+- clip add/move/delete actions
+- track creation during move
+- empty track cleanup
+- layer index sync
 
-## 7. Với Timeline Ngắn, Ruler Sẽ Nhảy Sang Step Nhỏ Hơn Sớm Hơn
+This should eventually be split into domain actions and pure helpers.
 
-**Quan sát (Video 31.23 giây):**
+## Known Technical Debt
 
-- `zoom thấp/vừa` → Ruler giữ khoảng `step ≈ 4s`.
-- `zoom cao` → Ruler nhảy xuống khoảng `step ≈ 0.8s`.
+### `timeline/index.tsx` Is Too Large
 
-**Lưu ý:** `0.8s` là một con số đáng chú ý. Nếu `fps = 30`, thì `0.8s = 24 frames`. Điều này củng cố thêm niềm tin rằng logic gắn liền với frame.
+It mixes rendering, layout derivation, drag/drop state, scroll math, panel resize, keyboard handling, and temporary lane preview logic.
 
----
+Risk:
 
-## 8. Quy Luật Tổng Quát Đã Chốt
+- Small changes can unintentionally break unrelated behavior.
+- Performance tuning is harder because derived state and event handlers are tightly coupled.
 
-**Rule Tư Duy:**
+Target:
 
-- **Width Timeline (`timelineWidth`):**
-  `timelineWidth = max(MIN_TIMELINE_WIDTH, totalFrames * pixelsPerFrame)`
+- Keep `Timeline` as an orchestrator, but move logic into focused hooks/helpers.
 
-- **Tick Width (`tickWidthPx`):**
-  `tickWidthPx = selectedStepFrames * pixelsPerFrame`
+### Drag/Drop Math Is Not Isolated
 
-- **Lựa Chọn Step (`Step Selection`):**
-  `selectedStepFrames` được chọn từ một danh sách các step "đẹp" (ví dụ: `fps * 24`, `fps * 8`, `fps * 4`, `fps * 2`, `fps`, `round(fps * 0.8)`, `round(fps * 0.4)`, ...).
+Drop preview computation currently lives inside `Timeline`.
 
----
+Risk:
 
-## 9. Zoom Không Làm Đổi Dữ Liệu Clip
+- Hard to test top/bottom insert, between-lane gap, occupied-lane rules, scroll delta, and overlap behavior.
 
-**Rule Quan Trọng:**
-Zoom chỉ thay đổi **cách hiển thị**, không thay đổi **dữ liệu thời gian thực tế** của clip.
+Target:
 
-- **Zoom Thay Đổi:**
-    - `pixelsPerFrame`
-    - `timelineWidth`
-    - `tick spacing`
-    - Vị trí và chiều rộng của item trên UI.
+- Extract drop target calculation into a pure helper.
 
-- **Zoom KHÔNG Thay Đổi:**
-    - `clip.from` (thời điểm bắt đầu của clip)
-    - `clip.durationInFrames` (tổng số frame của clip)
-    - `currentFrame` (khung hình hiện tại của playhead)
+### Auto-Scroll Is Inline
 
----
+Custom bounded auto-scroll is necessary, but currently lives inline.
 
-## 10. Item và Ruler Phải Cùng Dùng Một Hệ Quy Đổi
+Risk:
 
-**Nguyên tắc thống nhất:**
-Nếu ruler dùng một công thức tính toán (ví dụ: `pixelsPerFrame`, `origin`), thì các item (clip, marker,...) cũng phải sử dụng **chính xác** các thông số đó để đảm bảo sự đồng bộ.
+- Hard to tune thresholds and verify scroll bounds.
 
-- **Các thông số cần thống nhất:**
-    - `pixelsPerFrame`
-    - `gutterX` (khoảng cách giữa các item)
-    - `origin` (điểm gốc của trục thời gian)
-    - `frameToPx` (hàm chuyển đổi từ frame sang pixel)
+Target:
 
----
+- Extract to `useTimelineDragAutoScroll`.
 
-## 11. Timeline Trống Cũng Có "Default Duration" Nhìn Thấy
+### Temporary Track Preview Is Inline
 
-**Quan sát:**
+Preview track insertion is currently built in `Timeline`.
 
-- Timeline trống không nên hiển thị hoàn toàn trắng trơn.
-- Nó cần có một khoảng thời gian mặc định để người dùng bắt đầu thao tác.
-- Việc `zoom 1` luôn cho `width ≈ 1949px` cho thấy đây là trạng thái mặc định của "empty visible state".
+Risk:
 
----
+- Hard to reason about display tracks versus persisted tracks.
 
-## 12. Các Điểm Chưa Chắc Chắn 100% (Nhưng Quy Luật Mạnh)
+Target:
 
-Mặc dù các quy luật trên đã được chốt dựa trên bộ số đo đạc, có thể có các yếu tố phụ trợ trong engine gốc:
+- Extract to `buildTimelinePreviewTracks`.
 
-- Làm tròn (`rounding`)
-- Giới hạn viewport (`viewport clamp`)
-- Ngưỡng tối thiểu/tối đa cho `ruler spacing` (`min/max ruler spacing`)
-- Quy tắc thay đổi `step` theo ngưỡng cụ thể.
+### Store Clip/Track Mutation Logic Is Too Centralized
 
-**Kết quả đạt được:**
+`editor.store.ts` still contains track creation, empty track cleanup, overlap handling, and layer sync.
 
-- Hiểu rõ **quy luật kiến trúc** của timeline editor.
-- Có một **mô hình gần đúng rất mạnh** về cách hoạt động.
-- Có thể triển khai chức năng zoom timeline với độ chính xác cao, mặc dù có thể không clone **tuyệt đối từng số thập phân**.
+Risk:
 
----
+- Timeline UI and project mutation rules are coupled through large store actions.
 
-## 13. Tóm Tắt Ngắn Nhất Các Quy Luật Đã Chốt
+Target:
 
-- **Zoom:** Làm `timelineWidth` tăng gần tuyến tính.
-- **`zoom 1`:** Bị clamp về `minTimelineWidth ≈ 1949px`.
-- **Tick Spacing:** Không cố định, thay đổi theo zoom và duration.
-- **Ruler Steps:** Chọn `stepFrames` động (frame-based logic).
-- **Đồng bộ:** `pixelsPerFrame`, `origin`, `frameToPx` phải được dùng chung cho ruler và items.
-- **Dữ liệu Clip:** Zoom chỉ thay đổi cách hiển thị, không thay đổi dữ liệu thời gian của clip.
+- Extract pure store helpers before adding more editing features.
 
----
+## Performance Goals
 
-Dựa trên các quy luật này, chúng ta có thể tiếp tục xây dựng một "spec zoom timeline" ngắn gọn để làm nền tảng khi sửa đổi `TimelineToolbar` và `TimelineRuler`.
+Timeline must remain smooth for:
+
+- many clips
+- many tracks
+- long projects measured in hours
+- heavy media assets
+- frequent drag, resize, scroll, scrub, and playback updates
+
+Principles:
+
+- Derived layout data should be memoized.
+- Components should subscribe to narrow store slices.
+- Continuous pointer interactions should avoid writing project state until commit where possible.
+- Frame updates should not re-render the full timeline.
+- Drag overlays and previews must not expand scrollable layout.
+- Browser `scrollWidth` should not be trusted during drag if temporary absolute previews can affect overflow.
+- Large projects will eventually need virtualization.
+
+## Refactor Plan
+
+### Phase 1: Extract Timeline Constants And Types
+
+Goal:
+
+- Reduce clutter in `timeline/index.tsx`.
+
+Create:
+
+```text
+src/features/editor/components/timeline/timeline.constants.ts
+src/features/editor/components/timeline/timeline-drag.types.ts
+```
+
+Move:
+
+- panel height constants
+- drag auto-scroll constants
+- lane gap constants
+- preview track id
+- `ClipDropPreview` type
+- `TimelineBoundaryScrollEvent` type
+
+Behavior:
+
+- No behavior change.
+
+Verification:
+
+- `npm run lint`
+- `npm run build`
+
+### Phase 2: Extract Preview Track Builder
+
+Goal:
+
+- Separate temporary UI-only track derivation from rendering.
+
+Create:
+
+```text
+src/features/editor/components/timeline/lib/build-timeline-preview-tracks.ts
+```
+
+Move:
+
+- `getPreviewTrackKind`
+- `getTracksWithInsertPreview`
+
+Inputs:
+
+- persisted tracks
+- clips
+- dragging clip id
+- clip drop preview
+
+Output:
+
+- displayed tracks
+
+Behavior:
+
+- No behavior change.
+
+### Phase 3: Extract Drop Preview Calculation
+
+Goal:
+
+- Make lane creation rules explicit and testable.
+
+Create:
+
+```text
+src/features/editor/components/timeline/lib/get-clip-drop-preview.ts
+```
+
+Move logic for:
+
+- effective drag delta
+- requested frame clamp
+- top boundary lane insert
+- bottom boundary lane insert
+- between-lane gap line eligibility
+- occupied adjacent lane checks
+- target lane lookup
+- non-overlap visual frame walking
+
+Important behavior to preserve:
+
+- no lane creation if only one lane
+- top/bottom create lane preview
+- between occupied lanes show line
+- dragged clip excluded from lane occupancy
+- line drop creates lane on commit
+- empty lanes cleanup after commit is still store responsibility
+
+### Phase 4: Extract Drag Auto-Scroll Hook
+
+Goal:
+
+- Keep bounded custom drag auto-scroll but isolate it.
+
+Create:
+
+```text
+src/features/editor/components/timeline/hooks/use-timeline-drag-auto-scroll.ts
+```
+
+Responsibilities:
+
+- store drag start pointer and scroll origin
+- compute effective drag delta after scroll changes
+- scroll near viewport edges
+- clamp horizontal scroll to canonical timeline width
+- clamp vertical scroll to timeline content height
+
+Important:
+
+- Do not re-enable dnd-kit `autoScroll`.
+- Do not use live `scrollWidth` as the source of truth during drag.
+
+### Phase 5: Extract Timeline Panel Resize Hook
+
+Goal:
+
+- Keep panel resize isolated from ruler/playhead interactions.
+
+Create:
+
+```text
+src/features/editor/components/timeline/hooks/use-timeline-panel-resize.ts
+```
+
+Responsibilities:
+
+- pointer capture on resize handle
+- calculate next panel height
+- expose `isTimelinePanelResizing`
+- cleanup pointer listeners
+
+Behavior:
+
+- Ruler and playhead interactions remain disabled while resizing.
+
+### Phase 6: Extract Keyboard Shortcuts Hook
+
+Goal:
+
+- Remove global keydown wiring from `Timeline`.
+
+Create:
+
+```text
+src/features/editor/components/timeline/hooks/use-timeline-keyboard-shortcuts.ts
+```
+
+Initial responsibility:
+
+- Delete/Backspace selected clips unless editable target has focus.
+
+Future:
+
+- split
+- copy/paste
+- undo/redo
+- frame step
+- play/pause
+
+### Phase 7: Add Tests For Pure Timeline Logic
+
+Goal:
+
+- Protect Timeline behavior before larger performance work.
+
+Recommended tests:
+
+- lane layout calculation
+- clip layout calculation
+- timeline zoom calculation
+- top/bottom lane insert preview
+- no lane creation with one lane
+- between-lane gap only when both adjacent lanes are occupied
+- dragged clip excluded from occupancy
+- requested frame clamp
+- non-overlap visual walking
+- bounded drag auto-scroll clamp
+
+### Phase 8: Performance Pass
+
+Goal:
+
+- Prepare for large projects.
+
+Work:
+
+- Audit broad store subscriptions in Timeline subtree.
+- Avoid passing full `project` where smaller slices are enough.
+- Memoize maps:
+  - track by id
+  - lane by track id
+  - clip by id
+  - clips by track id
+- Reduce re-renders during drag by keeping transient drag state local.
+- Consider rendering only visible clips in viewport.
+- Plan virtualization for lanes and clips.
+
+## Proposed Future File Structure
+
+```text
+src/features/editor/components/timeline/
+  index.tsx
+  timeline.constants.ts
+  timeline-drag.types.ts
+  hooks/
+    use-timeline-drag-auto-scroll.ts
+    use-timeline-panel-resize.ts
+    use-timeline-keyboard-shortcuts.ts
+    use-timeline-boundary-scroll.ts
+  lib/
+    build-timeline-preview-tracks.ts
+    get-clip-drop-preview.ts
+    get-timeline-lane-occupancy.ts
+  components/
+    timeline-ruler.tsx
+    timeline-toolbar.tsx
+    timeline-playhead-viewport-layer.tsx
+    playhead.tsx
+    timeline-body/
+    timeline-item/
+    timeline-track-headers/
+```
+
+## Refactor Safety Checklist
+
+For every Timeline refactor:
+
+- Keep UI behavior unchanged unless explicitly requested.
+- Do not re-enable dnd-kit `autoScroll`.
+- Do not move source clip DOM with dnd-kit transform while dragging.
+- Keep `DragOverlay` for pointer-following dragged clip.
+- Keep target ghost as gray no-border placeholder.
+- Keep single-lane no-create rule.
+- Keep empty lane cleanup after drop.
+- Keep ruler/playhead disabled during panel resize.
+- Run `npm run lint`.
+- Run `npm run build`.
+- Update `MAINTENANCE_PLAN.md` and this file if behavior, architecture, or risks change.
+
+## Next Recommended Step
+
+Start with Phase 1 and Phase 2 only:
+
+1. Extract constants/types.
+2. Extract preview track builder.
+3. Run lint/build.
+4. Confirm no visual behavior changed.
+
+Do not start with drag/drop logic extraction first. It is the riskiest part and should be moved only after constants and preview track derivation are separated.
