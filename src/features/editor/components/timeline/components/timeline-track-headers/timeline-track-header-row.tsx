@@ -2,6 +2,7 @@ import { Button } from "antd";
 import { TimelineTrack } from "@/src/features/editor/types";
 import { HiOutlineEye, HiOutlineEyeSlash } from "react-icons/hi2";
 import { HiSpeakerWave, HiSpeakerXMark } from "react-icons/hi2";
+import { useEditorStore } from "@/src/features/editor/stores";
 
 type TimelineTrackHeaderRowProps = {
     track: TimelineTrack;
@@ -16,6 +17,8 @@ const TimelineTrackHeaderRow: React.FC<TimelineTrackHeaderRowProps> = ({
 }: TimelineTrackHeaderRowProps) => {
     const isHidden = track.isHidden;
     const isMuted = track.isMuted;
+    const toggleTrackHidden = useEditorStore((state) => state.toggleTrackHidden);
+    const toggleTrackMuted = useEditorStore((state) => state.toggleTrackMuted);
 
     return (
         <div
@@ -36,8 +39,13 @@ const TimelineTrackHeaderRow: React.FC<TimelineTrackHeaderRowProps> = ({
                     <Button
                         type='text'
                         size='small'
-                        aria-label='Hide Track'
+                        aria-label={isHidden ? "Show Track" : "Hide Track"}
+                        aria-pressed={isHidden}
                         className='flex items-center gap-1 rounded-sm p-1 hover:bg-black/5'
+                        onClick={(event) => {
+                            event.stopPropagation();
+                            toggleTrackHidden(track.id);
+                        }}
                         icon={
                             isHidden ? (
                                 <HiOutlineEyeSlash className='size-4 text-neutral-400 hover:text-black' />
@@ -50,8 +58,13 @@ const TimelineTrackHeaderRow: React.FC<TimelineTrackHeaderRowProps> = ({
                     <Button
                         type='text'
                         size='small'
-                        aria-label='Mute Track'
+                        aria-label={isMuted ? "Unmute Track" : "Mute Track"}
+                        aria-pressed={isMuted}
                         className='flex items-center gap-1 rounded-sm p-1 hover:bg-black/5'
+                        onClick={(event) => {
+                            event.stopPropagation();
+                            toggleTrackMuted(track.id);
+                        }}
                         icon={
                             isMuted ? (
                                 <HiSpeakerXMark className='size-4 text-neutral-400 hover:text-black' />

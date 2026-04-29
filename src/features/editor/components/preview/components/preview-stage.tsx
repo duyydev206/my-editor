@@ -3,11 +3,15 @@
 import React, { useEffect } from "react";
 import { Player, type PlayerRef } from "@remotion/player";
 import { ProjectVideoConfig } from "../../../types";
+import { useEditorStore } from "../../../stores";
 import EditorPreviewComposition from "../../../compositions/editor-composition";
+import { getRemotionPlayerDurationInFrames } from "../../../lib/playback-duration";
+import PreviewTextOverlay from "./preview-text-overlay";
 
 type PreviewStageProps = {
     playerRef: React.RefObject<PlayerRef | null>;
     video: ProjectVideoConfig;
+    playbackDurationInFrames: number;
     width: number;
     height: number;
     isLoopEnabled: boolean;
@@ -19,6 +23,7 @@ type PreviewStageProps = {
 const PreviewStage: React.FC<PreviewStageProps> = ({
     playerRef,
     video,
+    playbackDurationInFrames,
     width,
     height,
     isLoopEnabled,
@@ -26,6 +31,8 @@ const PreviewStage: React.FC<PreviewStageProps> = ({
     onPlay,
     onPause,
 }) => {
+    const project = useEditorStore((state) => state.project);
+
     useEffect(() => {
         const player = playerRef.current;
         if (!player) return;
@@ -63,8 +70,12 @@ const PreviewStage: React.FC<PreviewStageProps> = ({
             <Player
                 ref={playerRef}
                 component={EditorPreviewComposition}
-                inputProps={{}}
-                durationInFrames={video.durationInFrames}
+                // OLD logic: inputProps={{}}
+                // NEW logic: Pass actual projected data from global store into Player
+                inputProps={{ project }}
+                durationInFrames={getRemotionPlayerDurationInFrames(
+                    playbackDurationInFrames,
+                )}
                 fps={video.fps}
                 compositionWidth={video.width}
                 compositionHeight={video.height}
@@ -76,6 +87,12 @@ const PreviewStage: React.FC<PreviewStageProps> = ({
                     height: "100%",
                 }}
                 acknowledgeRemotionLicense
+            />
+            <PreviewTextOverlay
+                compositionWidth={video.width}
+                compositionHeight={video.height}
+                renderedWidth={width}
+                renderedHeight={height}
             />
         </div>
     );

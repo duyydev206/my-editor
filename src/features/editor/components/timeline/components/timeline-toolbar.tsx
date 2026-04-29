@@ -38,9 +38,11 @@ import {
     useZoomTimelineOut,
     useSeekToFrame,
     useEditorVideo,
+    useEditorProject,
     useTogglePreviewFullscreen,
 } from "../../../stores";
 import { formatTime } from "../../../lib/format-time";
+import { getEditorPlaybackDurationInFrames } from "../../../lib/playback-duration";
 
 const stylesObject: SliderSingleProps["styles"] = {
     track: {
@@ -56,7 +58,16 @@ const stylesObject: SliderSingleProps["styles"] = {
     },
 };
 
+const dispatchTimelineBoundaryScroll = (position: "start" | "end") => {
+    window.dispatchEvent(
+        new CustomEvent("editor:timeline-scroll-to-boundary", {
+            detail: { position },
+        }),
+    );
+};
+
 const TimelineToolbar: React.FC = () => {
+    const project = useEditorProject();
     const video = useEditorVideo();
     const status = usePlaybackStatus();
     const currentFrame = useCurrentFrame();
@@ -64,8 +75,12 @@ const TimelineToolbar: React.FC = () => {
     const snapEnabled = useSnapEnabled();
     const isLoopEnabled = useLoopEnabled();
     const zoomValue = useTimelineZoomLevel();
+    const playbackDurationInFrames =
+        getEditorPlaybackDurationInFrames(project);
     const currentTime = formatTime(currentFrame, video.fps);
-    const durationTime = formatTime(video.durationInFrames - 1, video.fps);
+    // OLD logic: Duration displayed the last renderable frame, so 5s showed as 04.96 at 30fps.
+    // NEW logic: Duration displays the actual end boundary.
+    const durationTime = formatTime(playbackDurationInFrames, video.fps);
 
     const togglePlay = useTogglePlay();
     const seekToFrame = useSeekToFrame();
@@ -136,7 +151,10 @@ const TimelineToolbar: React.FC = () => {
                     type='text'
                     size='middle'
                     icon={<IoPlaySkipBack className='text-2xl' />}
-                    onClick={() => seekToFrame(0)}
+                    onClick={() => {
+                        seekToFrame(0);
+                        dispatchTimelineBoundaryScroll("start");
+                    }}
                 />
 
                 <Button
@@ -156,7 +174,10 @@ const TimelineToolbar: React.FC = () => {
                     type='text'
                     size='middle'
                     icon={<IoPlaySkipForward className='text-2xl' />}
-                    onClick={() => seekToFrame(video.durationInFrames - 1)}
+                    onClick={() => {
+                        seekToFrame(playbackDurationInFrames);
+                        dispatchTimelineBoundaryScroll("end");
+                    }}
                 />
 
                 <span className='text-xs text-gray-500 min-w-20 text-right'>

@@ -156,6 +156,12 @@ export const useSetSelectedGroupId = () =>
 export const useClearSelection = () =>
     useEditorStore((state) => state.clearSelection);
 
+export const useAddTextClipAtPlayhead = () =>
+    useEditorStore((state) => state.addTextClipAtPlayhead);
+
+export const useAddMediaAssetAsClip = () =>
+    useEditorStore((state) => state.addMediaAssetAsClip);
+
 export const useStartTextEditing = () =>
     useEditorStore((state) => state.startTextEditing);
 

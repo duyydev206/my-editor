@@ -1,4 +1,4 @@
-import { TimelineTrack, TrackMediaKind } from "../types";
+import { TimelineClip, TimelineTrack, TrackMediaKind } from "../types";
 import { Pixels, TrackId } from "../types/primitives";
 
 export type TimelineTrackLaneLayout = {
@@ -22,18 +22,21 @@ type TimelineTrackVisualConfig = {
     resizeHandleWidth: Pixels;
 };
 
-const DEFAULT_VISUAL_CONFIG: TimelineTrackVisualConfig = {
+const DEFAULT_TIMELINE_TRACK_VISUAL_CONFIG: TimelineTrackVisualConfig = {
     laneHeight: 35,
     itemInsetY: 1.5,
     resizeHandleWidth: 6,
 };
 
-const TRACK_VISUAL_CONFIG: Record<TrackMediaKind, TimelineTrackVisualConfig> = {
+const TIMELINE_TRACK_VISUAL_CONFIG: Record<
+    TrackMediaKind,
+    TimelineTrackVisualConfig
+> = {
     text: { laneHeight: 35, itemInsetY: 1.5, resizeHandleWidth: 6 },
     shape: { laneHeight: 35, itemInsetY: 1.5, resizeHandleWidth: 6 },
-    audio: { laneHeight: 71, itemInsetY: 1.5, resizeHandleWidth: 6 },
+    audio: { laneHeight: 35, itemInsetY: 1.5, resizeHandleWidth: 6 },
     video: { laneHeight: 71, itemInsetY: 1.5, resizeHandleWidth: 6 },
-    image: { laneHeight: 71, itemInsetY: 1.5, resizeHandleWidth: 6 },
+    image: { laneHeight: 35, itemInsetY: 1.5, resizeHandleWidth: 6 },
 };
 
 const clampPositive = (value: number, fallback: number): number => {
@@ -44,7 +47,8 @@ const clampPositive = (value: number, fallback: number): number => {
 };
 
 export const buildTrackLaneLayouts = (
-    tracks: TimelineTrack[]
+    tracks: TimelineTrack[],
+    clips: TimelineClip[] = [],
 ): BuildTrackLaneLayoutsResult => {
     if (!Array.isArray(tracks) || tracks.length === 0) {
         return {
@@ -58,9 +62,26 @@ export const buildTrackLaneLayouts = (
     let currentTop = 0;
 
     const layouts = sortedTracks.map((track) => {
-        const config = TRACK_VISUAL_CONFIG[track.kind] ?? DEFAULT_VISUAL_CONFIG;
+        const trackClipTypes = clips
+            .filter((clip) => clip.trackId === track.id)
+            .map((clip) => clip.type);
+        const visualKinds = [track.kind, ...trackClipTypes];
+        const config = visualKinds.reduce<TimelineTrackVisualConfig>(
+            (largestConfig, kind) => {
+                const kindConfig =
+                    TIMELINE_TRACK_VISUAL_CONFIG[kind] ??
+                    DEFAULT_TIMELINE_TRACK_VISUAL_CONFIG;
 
-        const laneHeight = clampPositive(track.height, config.laneHeight);
+                return kindConfig.laneHeight > largestConfig.laneHeight
+                    ? kindConfig
+                    : largestConfig;
+            },
+            DEFAULT_TIMELINE_TRACK_VISUAL_CONFIG,
+        );
+
+        // OLD logic: track.height always overrode the visual config, so changing TIMELINE_TRACK_VISUAL_CONFIG did nothing for valid tracks.
+        // NEW logic: Lane height follows the tallest clip kind in the lane; empty lanes fall back to track kind.
+        const laneHeight = clampPositive(config.laneHeight, track.height);
 
         // Prevent invalid item height
         const maxInsetY = Math.max(0, (laneHeight - 1) / 2);
